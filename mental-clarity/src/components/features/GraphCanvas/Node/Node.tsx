@@ -1,7 +1,6 @@
 import { useCallback } from 'react';
 import { cn } from '@/utils/cn';
 import styles from './Node.module.css';
-import type { NodeCategory } from './types';
 
 interface NodeProps {
   id: string;
@@ -9,7 +8,6 @@ interface NodeProps {
   x: number;
   y: number;
   size?: number;
-  category: NodeCategory;
   isSelected?: boolean;
   onSelect: (id: string) => void;
 }
@@ -20,7 +18,6 @@ export function Node({
   x,
   y,
   size = 80,
-  category,
   isSelected = false,
   onSelect,
 }: NodeProps) {
@@ -34,7 +31,7 @@ export function Node({
 
   return (
     <div
-      className={cn(styles.node, styles[category], isSelected && styles.selected)}
+      className={cn(styles.node, isSelected && styles.selected)}
       style={{
         width: size,
         height: size,

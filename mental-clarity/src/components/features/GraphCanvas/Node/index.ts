@@ -1,2 +1,2 @@
 export { Node } from './Node';
-export type { NodeData, NodeCategory } from './types';
+export type { NodeData } from './types';

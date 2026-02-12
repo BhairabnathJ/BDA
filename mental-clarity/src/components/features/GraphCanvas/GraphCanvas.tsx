@@ -9,11 +9,11 @@ const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 
 const MOCK_NODES: NodeData[] = [
-  { id: '1', label: 'AgriScan', x: 200, y: 300, size: 100, category: 'technical' },
-  { id: '2', label: 'Sleep schedule', x: 600, y: 200, size: 80, category: 'personal' },
-  { id: '3', label: 'Guitar practice', x: 400, y: 500, size: 90, category: 'learning' },
-  { id: '4', label: 'Recipe ideas', x: 750, y: 450, size: 60, category: 'creative' },
-  { id: '5', label: 'Morning run', x: 300, y: 150, size: 120, category: 'organic' },
+  { id: '1', label: 'AgriScan', x: 200, y: 300, size: 100 },
+  { id: '2', label: 'Sleep schedule', x: 600, y: 200, size: 80 },
+  { id: '3', label: 'Guitar practice', x: 400, y: 500, size: 90 },
+  { id: '4', label: 'Recipe ideas', x: 750, y: 450, size: 60 },
+  { id: '5', label: 'Morning run', x: 300, y: 150, size: 120 },
 ];
 
 export function GraphCanvas() {
@@ -88,10 +88,6 @@ export function GraphCanvas() {
     [zoom, pan],
   );
 
-  const loadMockNodes = useCallback(() => {
-    setNodes(MOCK_NODES);
-  }, []);
-
   const hasNodes = nodes.length > 0;
 
   return (
@@ -118,8 +114,8 @@ export function GraphCanvas() {
         ))}
       </div>
       {!hasNodes && <EmptyState />}
-      {!hasNodes && (
-        <button className={styles.debugButton} onClick={loadMockNodes}>
+      {import.meta.env.DEV && !hasNodes && (
+        <button className={styles.debugButton} onClick={() => setNodes(MOCK_NODES)}>
           Load test nodes
         </button>
       )}
