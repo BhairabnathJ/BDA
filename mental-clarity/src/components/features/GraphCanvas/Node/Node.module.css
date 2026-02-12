@@ -1,0 +1,62 @@
+.node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-circle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: var(--shadow-subtle);
+  transition:
+    transform var(--duration-micro) var(--ease-smooth),
+    box-shadow var(--duration-micro) var(--ease-smooth);
+  will-change: transform, box-shadow;
+}
+
+.node:hover {
+  box-shadow: var(--shadow-medium);
+  z-index: 1;
+}
+
+.node:active {
+  box-shadow: var(--shadow-strong);
+}
+
+.selected {
+  box-shadow: var(--shadow-strong);
+  z-index: 2;
+}
+
+.label {
+  font-size: var(--font-size-body);
+  color: var(--color-text-primary);
+  text-align: center;
+  padding: var(--space-tiny);
+  line-height: var(--line-height-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+
+/* Category gradients */
+.organic {
+  background: var(--gradient-organic);
+}
+
+.technical {
+  background: var(--gradient-technical);
+}
+
+.creative {
+  background: var(--gradient-creative);
+}
+
+.learning {
+  background: var(--gradient-learning);
+}
+
+.personal {
+  background: var(--gradient-personal);
+}
