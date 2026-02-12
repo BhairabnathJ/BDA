@@ -35,7 +35,8 @@ export function Node({
       style={{
         width: size,
         height: size,
-        transform: `translate(${x - size / 2}px, ${y - size / 2}px)`,
+        left: x - size / 2,
+        top: y - size / 2,
       }}
       onClick={handleClick}
     >

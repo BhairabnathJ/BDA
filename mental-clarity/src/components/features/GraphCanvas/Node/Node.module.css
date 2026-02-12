@@ -1,7 +1,5 @@
 .node {
   position: absolute;
-  top: 0;
-  left: 0;
   border-radius: var(--radius-circle);
   display: flex;
   align-items: center;
@@ -12,20 +10,25 @@
   background: rgba(168, 197, 209, 0.15);
   box-shadow: var(--shadow-subtle);
   transition:
-    box-shadow var(--duration-micro) var(--ease-smooth);
+    box-shadow var(--duration-micro) var(--ease-smooth),
+    transform var(--duration-micro) var(--ease-smooth);
+  animation: nodeAppear 400ms var(--ease-organic) both;
 }
 
 .node:hover {
   box-shadow: var(--shadow-medium), 0 0 20px rgba(168, 197, 209, 0.3);
+  transform: scale(1.05);
   z-index: 1;
 }
 
 .node:active {
   box-shadow: var(--shadow-strong);
+  transform: scale(1.1);
 }
 
 .selected {
   box-shadow: var(--shadow-strong), 0 0 28px rgba(168, 197, 209, 0.45);
+  transform: scale(1.08);
   z-index: 2;
 }
 
@@ -41,4 +44,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: break-word;
+}
+
+@keyframes nodeAppear {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
