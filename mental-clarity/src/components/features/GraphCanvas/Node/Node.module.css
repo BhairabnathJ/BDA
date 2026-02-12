@@ -4,14 +4,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
   border: 2px solid var(--color-primary);
   background: rgba(168, 197, 209, 0.15);
   box-shadow: var(--shadow-subtle);
   transition:
     box-shadow var(--duration-micro) var(--ease-smooth),
-    transform var(--duration-micro) var(--ease-smooth);
+    transform var(--duration-micro) var(--ease-smooth),
+    opacity var(--duration-micro) var(--ease-smooth);
   animation: nodeAppear 400ms var(--ease-organic) both;
 }
 
@@ -21,15 +22,31 @@
   z-index: 1;
 }
 
-.node:active {
-  box-shadow: var(--shadow-strong);
-  transform: scale(1.1);
-}
-
 .selected {
   box-shadow: var(--shadow-strong), 0 0 28px rgba(168, 197, 209, 0.45);
   transform: scale(1.08);
   z-index: 2;
+}
+
+.dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-strong), 0 0 32px rgba(168, 197, 209, 0.5);
+  transform: scale(1.15);
+  opacity: 0.9;
+  z-index: 100;
+  transition: none;
+}
+
+.dragging:hover {
+  transform: scale(1.15);
+}
+
+/* Drop settle animation */
+.node:not(.dragging) {
+  transition:
+    box-shadow 300ms var(--ease-organic),
+    transform 300ms var(--ease-organic),
+    opacity 300ms var(--ease-organic);
 }
 
 .label {

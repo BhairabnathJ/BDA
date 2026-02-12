@@ -19,9 +19,15 @@ function App() {
     setNodes((prev) => [...prev, node]);
   }, []);
 
+  const handleNodeMove = useCallback((id: string, x: number, y: number) => {
+    setNodes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, x, y } : n)),
+    );
+  }, []);
+
   return (
     <>
-      <GraphCanvas nodes={nodes} />
+      <GraphCanvas nodes={nodes} onNodeMove={handleNodeMove} />
       <InputBar onSubmit={handleAddNode} />
     </>
   );

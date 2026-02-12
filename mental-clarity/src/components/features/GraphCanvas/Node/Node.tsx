@@ -9,7 +9,8 @@ interface NodeProps {
   y: number;
   size?: number;
   isSelected?: boolean;
-  onSelect: (id: string) => void;
+  isDragging?: boolean;
+  onDragStart: (id: string, e: React.MouseEvent) => void;
 }
 
 export function Node({
@@ -19,26 +20,31 @@ export function Node({
   y,
   size = 80,
   isSelected = false,
-  onSelect,
+  isDragging = false,
+  onDragStart,
 }: NodeProps) {
-  const handleClick = useCallback(
+  const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onSelect(id);
+      if (e.button !== 0) return;
+      onDragStart(id, e);
     },
-    [id, onSelect],
+    [id, onDragStart],
   );
 
   return (
     <div
-      className={cn(styles.node, isSelected && styles.selected)}
+      className={cn(
+        styles.node,
+        isSelected && styles.selected,
+        isDragging && styles.dragging,
+      )}
       style={{
         width: size,
         height: size,
         left: x - size / 2,
         top: y - size / 2,
       }}
-      onClick={handleClick}
+      onMouseDown={handleMouseDown}
     >
       <span className={styles.label}>{label}</span>
     </div>
