@@ -16,3 +16,23 @@
   transform-origin: 0 0;
   will-change: transform;
 }
+
+.debugButton {
+  position: fixed;
+  top: var(--space-small);
+  right: var(--space-small);
+  padding: var(--space-tiny) var(--space-small);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  z-index: 200;
+  opacity: 0.7;
+  transition: opacity var(--duration-micro) var(--ease-smooth);
+}
+
+.debugButton:hover {
+  opacity: 1;
+}

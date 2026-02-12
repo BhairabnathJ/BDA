@@ -12,15 +12,15 @@ const MOCK_NODES: NodeData[] = [
   { id: '1', label: 'AgriScan', x: 200, y: 300, size: 100, category: 'technical' },
   { id: '2', label: 'Sleep schedule', x: 600, y: 200, size: 80, category: 'personal' },
   { id: '3', label: 'Guitar practice', x: 400, y: 500, size: 90, category: 'learning' },
-  { id: '4', label: 'Recipe ideas', x: 750, y: 450, size: 85, category: 'creative' },
-  { id: '5', label: 'Morning run', x: 300, y: 150, size: 75, category: 'organic' },
+  { id: '4', label: 'Recipe ideas', x: 750, y: 450, size: 60, category: 'creative' },
+  { id: '5', label: 'Morning run', x: 300, y: 150, size: 120, category: 'organic' },
 ];
 
 export function GraphCanvas() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
-  const [nodes] = useState<NodeData[]>(MOCK_NODES);
+  const [nodes, setNodes] = useState<NodeData[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const dragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
@@ -88,6 +88,10 @@ export function GraphCanvas() {
     [zoom, pan],
   );
 
+  const loadMockNodes = useCallback(() => {
+    setNodes(MOCK_NODES);
+  }, []);
+
   const hasNodes = nodes.length > 0;
 
   return (
@@ -114,6 +118,11 @@ export function GraphCanvas() {
         ))}
       </div>
       {!hasNodes && <EmptyState />}
+      {!hasNodes && (
+        <button className={styles.debugButton} onClick={loadMockNodes}>
+          Load test nodes
+        </button>
+      )}
     </div>
   );
 }
