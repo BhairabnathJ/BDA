@@ -56,7 +56,7 @@ button {
 /* Dot Grid Background (Global Utility) */
 .bg-dot-grid {
     background-color: var(--color-bg-base);
-    background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+    background-image: radial-gradient(var(--color-border) 1px, transparent 2px);
     background-size: 32px 32px;
 }
 
