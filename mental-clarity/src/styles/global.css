@@ -1,0 +1,73 @@
+@import './variables.css';
+
+/* Simple Reset */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+}
+
+body {
+    font-family: var(--font-family-primary);
+    background-color: var(--color-bg-base);
+    color: var(--color-text-primary);
+    line-height: var(--line-height-body);
+    letter-spacing: var(--letter-spacing-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography Defaults */
+h1 {
+    font-size: var(--font-size-hero);
+    line-height: var(--line-height-hero);
+    font-weight: 300;
+}
+
+h2 {
+    font-size: var(--font-size-title);
+    line-height: var(--line-height-title);
+    font-weight: 400;
+}
+
+h3 {
+    font-size: var(--font-size-heading);
+    line-height: var(--line-height-heading);
+    font-weight: 500;
+}
+
+p {
+    margin-bottom: var(--space-medium);
+}
+
+button {
+    font-family: inherit;
+}
+
+/* Dot Grid Background (Global Utility) */
+.bg-dot-grid {
+    background-color: var(--color-bg-base);
+    background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
+
+@media (max-width: 1023px) {
+    .bg-dot-grid {
+        background-size: 24px 24px;
+    }
+}
+
+@media (max-width: 767px) {
+    .bg-dot-grid {
+        background-size: 20px 20px;
+    }
+}

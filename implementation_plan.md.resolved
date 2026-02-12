@@ -1,0 +1,400 @@
+# Implementation Plan: Mental Clarity - Foundation & Design System
+
+## Overview
+This plan establishes the bedrock for the Mental Clarity application. We are building a high-performance, custom-designed React application without heavy UI frameworks. The goal is to set up a robust development environment and implement the comprehensive design system (tokens, typography, colors) defined in the UI/UX specification immediately, so all future components can be built using these standardized values.
+
+**Tech Stack:**
+- **Framework:** React 18+ (Vite)
+- **Language:** TypeScript
+- **Styling:** CSS Modules + vanilla CSS Variables (Design Tokens)
+- **Tooling:** Vite, ESLint, Prettier
+
+## Step-by-Step Implementation Guide
+
+### Phase 1: Project Initialization & Configuration
+
+#### 1. Initialize Vite Project
+Run the following commands to create the project and install basic dependencies.
+
+```bash
+# Initialize Vite project with React and TypeScript
+npm create vite@latest mental-clarity -- --template react-ts
+
+# Navigate to project directory
+cd mental-clarity
+
+# Install core dependencies
+npm install
+
+# Install class utility for cleaner CSS modules usage
+# (We will use this to combine classes conditionally)
+npm install clsx
+```
+
+#### 2. Configure Paths & Aliases
+Update `vite.config.ts` to support absolute imports (e.g., `@/components` instead of `../../components`).
+
+**File:** `vite.config.ts`
+```typescript
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+})
+```
+
+**File:** `tsconfig.json` (Add paths to compilerOptions)
+```json
+{
+  "compilerOptions": {
+    /* ... existing options ... */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+```
+
+If `tsconfig.app.json` exists (common in newer Vite templates), update that instead or as well.
+
+#### 3. Create Directory Structure
+Delete almost everything in `src/` (except `main.tsx`, `vite-env.d.ts`) and create this structure:
+
+```bash
+# Clean up initial files
+rm src/App.tsx src/App.css src/index.css src/assets/react.svg
+
+# Create directory structure
+mkdir -p src/assets/fonts
+mkdir -p src/assets/images
+mkdir -p src/components/ui       # Reusable atoms (Buttons, Inputs)
+mkdir -p src/components/layout   # Structural components
+mkdir -p src/components/features # Feature-specific components
+mkdir -p src/hooks               # Custom React hooks
+mkdir -p src/services            # API and logic services
+mkdir -p src/styles              # Global styles and tokens
+mkdir -p src/types               # TypeScript definitions
+mkdir -p src/utils               # Helper functions
+mkdir -p src/pages               # Page-level components
+```
+
+---
+
+### Phase 2: Design System Implementation
+
+#### 4. Implement Design Tokens (CSS Variables)
+This is the most critical step. We will defined ALL design values from the spec as standard CSS variables.
+
+**File:** `src/styles/variables.css`
+```css
+/* DESIGN TOKENS - Source: UIUXspec.md */
+
+:root {
+  /* =========================================
+     COLOR PALETTE
+     ========================================= */
+  
+  /* Backgrounds */
+  --color-bg-base: #F5F1E8;
+  --color-bg-dark: #E8E2D5;
+  --color-overlay: rgba(0, 0, 0, 0.4);
+
+  /* Accents */
+  --color-primary: #A8C5D1;    /* Soft Blue */
+  --color-primary-dark: #8BA5B8;
+  --color-primary-light: rgba(168, 197, 209, 0.1);
+  --color-secondary: #B8D4C2;  /* Soft Sage */
+  --color-secondary-dark: #9FB89F;
+
+  /* Node Categories (Gradients) */
+  --gradient-organic: linear-gradient(135deg, #E8C5B5, #D4A89F);
+  --gradient-technical: linear-gradient(135deg, #A8C5D1, #8BA5B8);
+  --gradient-creative: linear-gradient(135deg, #D5B8D4, #B89FB8);
+  --gradient-learning: linear-gradient(135deg, #B8D4C2, #9FB89F);
+  --gradient-personal: linear-gradient(135deg, #F5E6D3, #D4C5B5);
+
+  /* UI Elements */
+  --color-text-primary: #2C2C2C;
+  --color-text-secondary: #6B6B6B;
+  --color-text-disabled: #A8A8A8;
+  
+  --color-border: #D4CFC5;
+  --color-success: #7FB89F;
+  --color-warning: #D4A87F;
+  --color-error: #C58F8F;
+  --color-error-hover: #B57F7F;
+
+  /* Opacity Helper (Variables for reuse in rgba) */
+  --opacity-full: 1;
+  --opacity-strong: 0.85;
+  --opacity-medium: 0.6;
+  --opacity-light: 0.4;
+  --opacity-very-light: 0.2;
+  --opacity-barely: 0.1;
+
+  /* =========================================
+     TYPOGRAPHY
+     ========================================= */
+  
+  --font-family-primary: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Font Sizes */
+  --font-size-hero: 48px;     /* Desktop default */
+  --font-size-title: 28px;
+  --font-size-heading: 20px;
+  --font-size-body: 16px;
+  --font-size-caption: 13px;
+  --font-size-tiny: 11px;
+
+  /* Line Heights */
+  --line-height-hero: 1.1;
+  --line-height-title: 1.2;
+  --line-height-heading: 1.3;
+  --line-height-body: 1.5;
+  --line-height-caption: 1.4;
+  --line-height-tiny: 1.3;
+
+  /* Letter Spacing */
+  --letter-spacing-base: -0.02em;
+
+  /* =========================================
+     SPACING SYSTEM (Base Unit: 8px)
+     ========================================= */
+  
+  --space-micro: 4px;   /* 0.5 units */
+  --space-tiny: 8px;    /* 1 unit */
+  --space-small: 16px;  /* 2 units */
+  --space-medium: 24px; /* 3 units */
+  --space-large: 32px;  /* 4 units */
+  --space-xl: 48px;     /* 6 units */
+  --space-xxl: 64px;    /* 8 units */
+  --space-huge: 96px;   /* 12 units */
+
+  /* Responsive Spacing (Defaults) */
+  --space-screen-edge: 32px;
+  --space-content-padding: 24px;
+  --space-section: 48px;
+
+  /* =========================================
+     CORNER RADIUS
+     ========================================= */
+  
+  --radius-micro: 4px;
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 20px;
+  --radius-xl: 32px;
+  --radius-circle: 50%;
+  --radius-pill: 9999px;
+
+  /* =========================================
+     SHADOWS
+     ========================================= */
+  
+  --shadow-subtle: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-medium: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  /* =========================================
+     ANIMATION & MOTION
+     ========================================= */
+  
+  /* Easing Curves */
+  --ease-smooth: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --ease-organic: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-spring: cubic-bezier(0.5, 1.5, 0.5, 1);
+  --ease-slow-start: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-quick-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Durations */
+  --duration-micro: 150ms;
+  --duration-fast: 250ms;
+  --duration-standard: 450ms;
+  --duration-slow: 700ms;
+  --duration-very-slow: 1250ms;
+  --duration-cinematic: 2000ms;
+}
+
+/* =========================================
+   RESPONSIVE OVERRIDES
+   ========================================= */
+
+@media (max-width: 1023px) { /* Tablet */
+  :root {
+    --font-size-hero: 40px;
+    --font-size-title: 24px;
+    --font-size-heading: 18px;
+    --font-size-body: 15px;
+    --font-size-caption: 12px;
+
+    --space-screen-edge: 24px;
+    --space-content-padding: 16px;
+    --space-section: 32px;
+  }
+}
+
+@media (max-width: 767px) { /* Mobile */
+  :root {
+    --font-size-hero: 32px;
+    --font-size-title: 20px;
+    --font-size-heading: 16px;
+    --font-size-body: 14px;
+    --font-size-caption: 11px;
+
+    --space-screen-edge: 16px;
+    --space-content-padding: 12px;
+    --space-section: 24px;
+  }
+}
+```
+
+#### 5. Create Global Styles & Reset
+Set up the base styles, simple reset, and font imports.
+
+**File:** `src/styles/global.css`
+```css
+@import './variables.css';
+
+/* Simple Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: var(--font-family-primary);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-body);
+  letter-spacing: var(--letter-spacing-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography Defaults */
+h1 { font-size: var(--font-size-hero); line-height: var(--line-height-hero); font-weight: 300; }
+h2 { font-size: var(--font-size-title); line-height: var(--line-height-title); font-weight: 400; }
+h3 { font-size: var(--font-size-heading); line-height: var(--line-height-heading); font-weight: 500; }
+p { margin-bottom: var(--space-medium); }
+
+button {
+  font-family: inherit;
+}
+
+/* Dot Grid Background (Global Utility) */
+.bg-dot-grid {
+  background-color: var(--color-bg-base);
+  background-image: radial-gradient(var(--color-border) 2px, transparent 2px);
+  background-size: 32px 32px;
+}
+
+@media (max-width: 1023px) {
+  .bg-dot-grid { background-size: 24px 24px; }
+}
+
+@media (max-width: 767px) {
+  .bg-dot-grid { background-size: 20px 20px; }
+}
+```
+
+#### 6. Initialize App Entry Point
+Update `main.tsx` to import the global styles.
+
+**File:** `src/main.tsx`
+```typescript
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+import './styles/global.css' // Import global styles & tokens
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+```
+
+Create a bare-bones `App.tsx` just to verify standard styles work.
+**File:** `src/App.tsx`
+```typescript
+import React from 'react';
+
+function App() {
+  return (
+    <div className="bg-dot-grid" style={{ minHeight: '100vh', padding: 'var(--space-screen-edge)' }}>
+      <h1>Mental Clarity</h1>
+      <p>Foundation established.</p>
+      
+      <div style={{ display: 'flex', gap: 'var(--space-small)', marginTop: 'var(--space-large)' }}>
+        <button style={{
+          backgroundColor: 'var(--color-primary)',
+          color: 'white',
+          border: 'none',
+          padding: '12px 24px',
+          borderRadius: 'var(--radius-pill)',
+          cursor: 'pointer'
+        }}>
+          Primary Button
+        </button>
+        
+        <button style={{
+          backgroundColor: 'transparent',
+          color: 'var(--color-text-secondary)',
+          border: '1px solid var(--color-border)',
+          padding: '12px 24px',
+          borderRadius: 'var(--radius-pill)',
+          cursor: 'pointer'
+        }}>
+          Secondary Button
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default App;
+```
+
+#### 7. Utility Function (Important)
+Create a `utils` file for cleaner class manipulation, equivalent to `cn()` in shadcn but using just `clsx` (since we aren't using Tailwind).
+
+**File:** `src/utils/cn.ts`
+```typescript
+import { clsx, type ClassValue } from 'clsx';
+
+export function cn(...inputs: ClassValue[]) {
+  return clsx(inputs);
+}
+```
+
+---
+
+### Phase 3: Verification (Acceptance Criteria)
+
+Once executed, verify the following:
+1.  **Server Starts:** `npm run dev` starts without errors.
+2.  **Styles Applied:** The background should be beige (`#F5F1E8`) with a subtle dot grid pattern.
+3.  **Fonts Loaded:** Inspect element on "Mental Clarity" text - should be using system sans-serif (Inter if installed locally, or fallback). We are using system fallbacks for now to avoid Google Fonts complexity in step 1, but `variables.css` is prepared for Inter.
+4.  **Responsive:** Resizing the browser window effectively scales spacing and font sizes as per the media queries in `variables.css`.
+5.  **Clean Console:** No TS errors or warnings in the terminal.
+
+### Next Steps (Transition)
+After this foundation is solid, the next logical step is to implement the **Base Components** (Button, Input, Modal) using these tokens, followed by the **Graph Canvas** setup using HTML5 Canvas or SVG.
