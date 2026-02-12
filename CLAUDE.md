@@ -45,3 +45,17 @@ The app is in early stage. The code lives entirely in `mental-clarity/`.
 - No text unless absolutely necessary; communicate through color, motion, proximity, depth, opacity
 - Local-first architecture — all user data stays on device by default
 - Zero cognitive burden during crisis mode (2AM)
+
+## Git Workflow
+
+### Branch Strategy
+- **Never commit directly to `main`**
+- Create a new branch for each feature using descriptive names
+- Branch naming: `feature/[feature-name]` (e.g., `feature/graph-canvas`, `feature/voice-input`)
+
+### Committing Changes
+**CRITICAL:** After implementing each feature or completing a logical chunk of work:
+
+1. **Stage changes:**
+   ```bash
+   git add .
