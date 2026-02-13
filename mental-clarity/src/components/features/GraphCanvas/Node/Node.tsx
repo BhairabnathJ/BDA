@@ -7,6 +7,7 @@ interface NodeProps {
   label: string;
   x: number;
   y: number;
+  category?: string;
   isSelected?: boolean;
   isDragging?: boolean;
   onDragStart: (id: string, e: React.MouseEvent) => void;
@@ -25,6 +26,7 @@ export function Node({
   label,
   x,
   y,
+  category,
   isSelected = false,
   isDragging = false,
   onDragStart,
@@ -43,6 +45,7 @@ export function Node({
     <div
       className={cn(
         styles.node,
+        category && styles[category],
         isSelected && styles.selected,
         isDragging && styles.dragging,
       )}

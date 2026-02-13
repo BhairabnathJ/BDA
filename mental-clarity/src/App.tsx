@@ -1,27 +1,24 @@
 import { useCallback, useState } from 'react';
 import { GraphCanvas } from '@/components/features/GraphCanvas';
 import { InputBar } from '@/components/layout/InputBar';
-import { NodeDetailModal } from '@/components/features/GraphCanvas/NodeDetail';
-import type { NodeData } from '@/components/features/GraphCanvas/Node';
+import { NodeDetailPanel } from '@/components/features/GraphCanvas/NodeDetailPanel';
+import type { EdgeData } from '@/components/features/GraphCanvas/Node';
+import type { ConnectionData, NodeData } from '@/types/graph';
+import { useAIExtraction } from '@/hooks/useAIExtraction';
 
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
+  const [connections, setConnections] = useState<ConnectionData[]>([]);
+  const [edges, setEdges] = useState<EdgeData[]>([]);
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
+  const { extract, status, isProcessing } = useAIExtraction();
 
-  const handleAddNode = useCallback((label: string) => {
-    const cx = window.innerWidth / 2;
-    const cy = window.innerHeight / 2;
-    const now = Date.now();
-    const node: NodeData = {
-      id: crypto.randomUUID(),
-      label,
-      x: cx - 300 + Math.random() * 600,
-      y: cy - 200 + Math.random() * 400,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setNodes((prev) => [...prev, node]);
-  }, []);
+  const handleSubmit = useCallback(async (text: string) => {
+    const result = await extract(text);
+    if (!result) return;
+    setNodes((prev) => [...prev, ...result.nodes]);
+    setConnections((prev) => [...prev, ...result.connections]);
+  }, [extract]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>
@@ -39,7 +36,34 @@ function App() {
 
   const handleDeleteNode = useCallback((id: string) => {
     setNodes((prev) => prev.filter((n) => n.id !== id));
+    setConnections((prev) => prev.filter(
+      (c) => c.sourceId !== id && c.targetId !== id,
+    ));
+    setEdges((prev) => prev.filter((e) => e.sourceId !== id && e.targetId !== id));
     setDetailNodeId(null);
+  }, []);
+
+  const handleAddEdge = useCallback((sourceId: string, targetId: string) => {
+    setEdges((prev) => {
+      const exists = prev.some(
+        (e) =>
+          (e.sourceId === sourceId && e.targetId === targetId) ||
+          (e.sourceId === targetId && e.targetId === sourceId),
+      );
+      if (exists) return prev;
+      return [
+        ...prev,
+        { id: crypto.randomUUID(), sourceId, targetId, strength: 3 },
+      ];
+    });
+  }, []);
+
+  const handleRemoveEdge = useCallback((edgeId: string) => {
+    setEdges((prev) => prev.filter((e) => e.id !== edgeId));
+  }, []);
+
+  const handleNavigateNode = useCallback((nodeId: string) => {
+    setDetailNodeId(nodeId);
   }, []);
 
   const detailNode = detailNodeId ? nodes.find((n) => n.id === detailNodeId) ?? null : null;
@@ -48,15 +72,26 @@ function App() {
     <>
       <GraphCanvas
         nodes={nodes}
+        connections={connections}
         onNodeMove={handleNodeMove}
         onNodeClick={setDetailNodeId}
       />
-      <InputBar onSubmit={handleAddNode} />
+      <InputBar
+        onSubmit={handleSubmit}
+        isProcessing={isProcessing}
+        aiStatus={status}
+      />
       {detailNode && (
-        <NodeDetailModal
+        <NodeDetailPanel
+          key={detailNode.id}
           node={detailNode}
+          nodes={nodes}
+          edges={edges}
           onUpdate={handleUpdateNode}
           onDelete={handleDeleteNode}
+          onAddEdge={handleAddEdge}
+          onRemoveEdge={handleRemoveEdge}
+          onNavigate={handleNavigateNode}
           onClose={() => setDetailNodeId(null)}
         />
       )}

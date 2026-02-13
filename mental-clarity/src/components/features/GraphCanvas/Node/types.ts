@@ -1,9 +1,9 @@
-export interface NodeData {
+export type { NodeData } from '@/types/graph';
+
+export interface EdgeData {
   id: string;
-  label: string;
-  x: number;
-  y: number;
-  content?: string;
-  createdAt: number;
-  updatedAt: number;
+  sourceId: string;
+  targetId: string;
+  label?: string;
+  strength?: number;
 }

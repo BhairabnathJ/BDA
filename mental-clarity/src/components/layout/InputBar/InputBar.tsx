@@ -1,22 +1,35 @@
 import { useCallback, useRef, useState } from 'react';
+import type { AIServiceStatus } from '@/types/graph';
+import { cn } from '@/utils/cn';
 import { WaveformIcon } from './WaveformIcon';
 import styles from './InputBar.module.css';
 
 interface InputBarProps {
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => void | Promise<void>;
+  isProcessing?: boolean;
+  aiStatus?: AIServiceStatus;
 }
 
-export function InputBar({ onSubmit }: InputBarProps) {
+function statusMessage(status?: AIServiceStatus): string {
+  switch (status) {
+    case 'checking': return 'Connecting to AI...';
+    case 'extracting-entities': return 'Extracting topics...';
+    case 'extracting-relationships': return 'Finding connections...';
+    default: return 'Processing...';
+  }
+}
+
+export function InputBar({ onSubmit, isProcessing = false, aiStatus }: InputBarProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    const label = trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed;
-    onSubmit(label);
+    if (isProcessing) return;
+    onSubmit(trimmed);
     setValue('');
-  }, [value, onSubmit]);
+  }, [value, onSubmit, isProcessing]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -32,25 +45,35 @@ export function InputBar({ onSubmit }: InputBarProps) {
   );
 
   return (
-    <div className={styles.bar}>
+    <div className={cn(styles.bar, isProcessing && styles.processing)}>
       <input
         ref={inputRef}
         className={styles.input}
         type="text"
-        placeholder="What's on your mind?"
+        placeholder={isProcessing ? statusMessage(aiStatus) : "What's on your mind?"}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        maxLength={53}
+        maxLength={3000}
+        disabled={isProcessing}
       />
-      {value.trim() && (
+      {isProcessing && (
+        <div className={styles.processingIndicator}>
+          <div className={styles.dot} />
+          <div className={styles.dot} />
+          <div className={styles.dot} />
+        </div>
+      )}
+      {!isProcessing && value.trim() && (
         <button className={styles.sendButton} onClick={handleSubmit}>
           <span className={styles.sendIcon}>↑</span>
         </button>
       )}
-      <button className={styles.voiceButton}>
-        <WaveformIcon />
-      </button>
+      {!isProcessing && (
+        <button className={styles.voiceButton}>
+          <WaveformIcon />
+        </button>
+      )}
     </div>
   );
 }
