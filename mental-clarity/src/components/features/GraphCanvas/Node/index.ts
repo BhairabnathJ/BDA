@@ -1,2 +1,2 @@
 export { Node } from './Node';
-export type { NodeData } from './types';
+export type { NodeData, EdgeData } from './types';

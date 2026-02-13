@@ -3,6 +3,8 @@ import { cn } from '@/utils/cn';
 import { EmptyState } from './EmptyState';
 import { Node } from './Node';
 import type { NodeData } from './Node';
+import { ConnectionsLayer } from './ConnectionsLayer/ConnectionsLayer';
+import type { ConnectionData } from '@/types/graph';
 import styles from './GraphCanvas.module.css';
 
 const MIN_ZOOM = 0.25;
@@ -13,11 +15,12 @@ const MOMENTUM_MIN_VELOCITY = 0.5;
 
 interface GraphCanvasProps {
   nodes: NodeData[];
+  connections?: ConnectionData[];
   onNodeMove: (id: string, x: number, y: number) => void;
   onNodeClick?: (id: string) => void;
 }
 
-export function GraphCanvas({ nodes, onNodeMove, onNodeClick }: GraphCanvasProps) {
+export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick }: GraphCanvasProps) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
@@ -247,6 +250,7 @@ export function GraphCanvas({ nodes, onNodeMove, onNodeClick }: GraphCanvasProps
           transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
         }}
       >
+        <ConnectionsLayer connections={connections} nodes={nodes} />
         {nodes.map((node) => (
           <Node
             key={node.id}
