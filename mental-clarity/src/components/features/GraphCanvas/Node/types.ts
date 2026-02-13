@@ -3,4 +3,7 @@ export interface NodeData {
   label: string;
   x: number;
   y: number;
+  content?: string;
+  createdAt: number;
+  updatedAt: number;
 }
