@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { cn } from '@/utils/cn';
 import styles from './Node.module.css';
 
@@ -7,10 +7,17 @@ interface NodeProps {
   label: string;
   x: number;
   y: number;
-  size?: number;
   isSelected?: boolean;
   isDragging?: boolean;
   onDragStart: (id: string, e: React.MouseEvent) => void;
+}
+
+function computeSize(label: string): number {
+  const len = label.length;
+  if (len <= 4) return 60;
+  if (len <= 8) return 80;
+  if (len <= 14) return 100;
+  return 120;
 }
 
 export function Node({
@@ -18,11 +25,12 @@ export function Node({
   label,
   x,
   y,
-  size = 80,
   isSelected = false,
   isDragging = false,
   onDragStart,
 }: NodeProps) {
+  const size = useMemo(() => computeSize(label), [label]);
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;

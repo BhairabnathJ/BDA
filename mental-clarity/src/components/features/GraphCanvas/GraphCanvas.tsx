@@ -7,8 +7,9 @@ import styles from './GraphCanvas.module.css';
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
-const DRAG_HOLD_MS = 150;
-const DRAG_THRESHOLD_PX = 5;
+const CLICK_THRESHOLD_PX = 3;
+const MOMENTUM_FRICTION = 0.92;
+const MOMENTUM_MIN_VELOCITY = 0.5;
 
 interface GraphCanvasProps {
   nodes: NodeData[];
@@ -19,22 +20,25 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
+  const [hasMomentum, setHasMomentum] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
 
   const panDragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
   const didPanDrag = useRef(false);
+  const lastMouse = useRef({ x: 0, y: 0, t: 0 });
+  const velocity = useRef({ x: 0, y: 0 });
+  const momentumRaf = useRef<number>(0);
 
   // Node drag refs
-  const nodeDragTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nodeDragState = useRef<{
     nodeId: string;
     initialMouseX: number;
     initialMouseY: number;
     initialNodeX: number;
     initialNodeY: number;
-    activated: boolean;
+    didMove: boolean;
   } | null>(null);
 
   // --- Canvas pan handlers ---
@@ -42,10 +46,20 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;
+
+      // Cancel any ongoing momentum
+      if (momentumRaf.current) {
+        cancelAnimationFrame(momentumRaf.current);
+        momentumRaf.current = 0;
+        setHasMomentum(false);
+      }
+
       setIsPanning(true);
       didPanDrag.current = false;
       panDragStart.current = { x: e.clientX, y: e.clientY };
       panStart.current = { x: pan.x, y: pan.y };
+      lastMouse.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+      velocity.current = { x: 0, y: 0 };
     },
     [pan],
   );
@@ -55,9 +69,21 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
       if (!isPanning || draggingNodeId) return;
       const dx = e.clientX - panDragStart.current.x;
       const dy = e.clientY - panDragStart.current.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      if (Math.abs(dx) > CLICK_THRESHOLD_PX || Math.abs(dy) > CLICK_THRESHOLD_PX) {
         didPanDrag.current = true;
       }
+
+      // Track velocity
+      const now = Date.now();
+      const dt = now - lastMouse.current.t;
+      if (dt > 0) {
+        velocity.current = {
+          x: (e.clientX - lastMouse.current.x) / dt * 16,
+          y: (e.clientY - lastMouse.current.y) / dt * 16,
+        };
+      }
+      lastMouse.current = { x: e.clientX, y: e.clientY, t: now };
+
       setPan({
         x: panStart.current.x + dx,
         y: panStart.current.y + dy,
@@ -67,7 +93,43 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
   );
 
   const handleMouseUp = useCallback(() => {
+    if (!isPanning) return;
     setIsPanning(false);
+
+    // Apply momentum if velocity is significant
+    const vx = velocity.current.x;
+    const vy = velocity.current.y;
+    if (Math.abs(vx) > MOMENTUM_MIN_VELOCITY || Math.abs(vy) > MOMENTUM_MIN_VELOCITY) {
+      setHasMomentum(true);
+      const currentVel = { x: vx, y: vy };
+
+      const animate = () => {
+        currentVel.x *= MOMENTUM_FRICTION;
+        currentVel.y *= MOMENTUM_FRICTION;
+
+        if (Math.abs(currentVel.x) < MOMENTUM_MIN_VELOCITY && Math.abs(currentVel.y) < MOMENTUM_MIN_VELOCITY) {
+          setHasMomentum(false);
+          momentumRaf.current = 0;
+          return;
+        }
+
+        setPan((prev) => ({
+          x: prev.x + currentVel.x,
+          y: prev.y + currentVel.y,
+        }));
+
+        momentumRaf.current = requestAnimationFrame(animate);
+      };
+
+      momentumRaf.current = requestAnimationFrame(animate);
+    }
+  }, [isPanning]);
+
+  // Cleanup momentum on unmount
+  useEffect(() => {
+    return () => {
+      if (momentumRaf.current) cancelAnimationFrame(momentumRaf.current);
+    };
   }, []);
 
   const handleCanvasClick = useCallback(() => {
@@ -114,20 +176,14 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
         initialMouseY: e.clientY,
         initialNodeX: node.x,
         initialNodeY: node.y,
-        activated: false,
+        didMove: false,
       };
 
-      nodeDragTimer.current = setTimeout(() => {
-        if (nodeDragState.current) {
-          nodeDragState.current.activated = true;
-          setDraggingNodeId(nodeId);
-        }
-      }, DRAG_HOLD_MS);
+      setDraggingNodeId(nodeId);
     },
     [nodes],
   );
 
-  // Document-level listeners for drag move/up
   useEffect(() => {
     const handleDocMouseMove = (e: MouseEvent) => {
       const state = nodeDragState.current;
@@ -136,19 +192,12 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
       const dx = e.clientX - state.initialMouseX;
       const dy = e.clientY - state.initialMouseY;
 
-      // If moved beyond threshold before timer, activate immediately
-      if (!state.activated && (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX)) {
-        if (nodeDragTimer.current) clearTimeout(nodeDragTimer.current);
-        state.activated = true;
-        setDraggingNodeId(state.nodeId);
+      if (Math.abs(dx) > CLICK_THRESHOLD_PX || Math.abs(dy) > CLICK_THRESHOLD_PX) {
+        state.didMove = true;
       }
-
-      if (!state.activated) return;
 
       const newX = state.initialNodeX + dx / zoom;
       const newY = state.initialNodeY + dy / zoom;
-
-      // Clamp to keep at least 20% visible (40px for 80px node)
       const clampedX = Math.max(-40, newX);
       const clampedY = Math.max(-40, newY);
 
@@ -156,14 +205,8 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
     };
 
     const handleDocMouseUp = () => {
-      if (nodeDragTimer.current) {
-        clearTimeout(nodeDragTimer.current);
-        nodeDragTimer.current = null;
-      }
-
       const state = nodeDragState.current;
-      if (state && !state.activated) {
-        // Was a quick click, treat as select
+      if (state && !state.didMove) {
         setSelectedNodeId(state.nodeId);
       }
 
@@ -186,7 +229,7 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
       className={cn(
         'bg-dot-grid',
         styles.container,
-        isPanning && !draggingNodeId && styles.panning,
+        (isPanning || hasMomentum) && !draggingNodeId && styles.panning,
         draggingNodeId && styles.draggingNode,
       )}
       onMouseDown={handleMouseDown}
@@ -198,7 +241,9 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
     >
       <div
         className={styles.surface}
-        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+        style={{
+          transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+        }}
       >
         {nodes.map((node) => (
           <Node

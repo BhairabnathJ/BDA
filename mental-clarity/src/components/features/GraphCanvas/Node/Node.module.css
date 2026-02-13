@@ -4,76 +4,109 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: grab;
+  cursor: pointer;
   user-select: none;
-  border: 2px solid var(--color-primary);
-  background: rgba(168, 197, 209, 0.15);
-  box-shadow: var(--shadow-subtle);
+  min-width: 60px;
+  min-height: 60px;
+  padding: 16px;
+  background: rgba(245, 241, 232, 0.15);
+  border: 1.5px solid rgba(168, 197, 209, 0.5);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(168, 197, 209, 0.1) inset;
+  transform: translateZ(0);
   transition:
-    box-shadow var(--duration-micro) var(--ease-smooth),
-    transform var(--duration-micro) var(--ease-smooth),
-    opacity var(--duration-micro) var(--ease-smooth);
-  animation: nodeAppear 400ms var(--ease-organic) both;
+    transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    background 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  animation: nodeAppear 600ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 .node:hover {
-  box-shadow: var(--shadow-medium), 0 0 20px rgba(168, 197, 209, 0.3);
-  transform: scale(1.05);
+  background: rgba(245, 241, 232, 0.22);
+  border-color: rgba(168, 197, 209, 0.65);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.12),
+    0 0 20px rgba(168, 197, 209, 0.15),
+    0 0 0 1px rgba(168, 197, 209, 0.2) inset;
+  transform: translateZ(0) scale(1.05);
   z-index: 1;
 }
 
 .selected {
-  box-shadow: var(--shadow-strong), 0 0 28px rgba(168, 197, 209, 0.45);
-  transform: scale(1.08);
+  background: rgba(245, 241, 232, 0.28);
+  border-color: rgba(168, 197, 209, 0.8);
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.15),
+    0 0 32px rgba(168, 197, 209, 0.25),
+    0 0 0 2px rgba(168, 197, 209, 0.4) inset;
+  transform: translateZ(0) scale(1.12);
+  transition:
+    transform 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    box-shadow 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    background 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    border-color 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    opacity 400ms cubic-bezier(0.34, 1.2, 0.64, 1);
   z-index: 2;
 }
 
 .dragging {
   cursor: grabbing;
-  box-shadow: var(--shadow-strong), 0 0 32px rgba(168, 197, 209, 0.5);
-  transform: scale(1.15);
+  background: rgba(245, 241, 232, 0.32);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.2),
+    0 0 48px rgba(168, 197, 209, 0.3),
+    0 0 0 2px rgba(168, 197, 209, 0.5) inset;
+  transform: translateZ(0) scale(1.1);
   opacity: 0.9;
   z-index: 100;
   transition: none;
 }
 
 .dragging:hover {
-  transform: scale(1.15);
+  transform: translateZ(0) scale(1.1);
 }
 
-/* Drop settle animation */
-.node:not(.dragging) {
+/* Drop settle */
+.node:not(.dragging):not(:hover):not(.selected) {
   transition:
-    box-shadow 300ms var(--ease-organic),
-    transform 300ms var(--ease-organic),
-    opacity 300ms var(--ease-organic);
+    transform 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    box-shadow 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    background 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    border-color 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    opacity 500ms cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 .label {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--color-text-primary);
-  opacity: 0.9;
+  opacity: 0.85;
   text-align: center;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  padding: var(--space-small);
-  line-height: var(--line-height-caption);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  word-break: break-word;
+  max-width: 150px;
 }
 
 @keyframes nodeAppear {
   0% {
     opacity: 0;
-    transform: scale(0.5);
+    transform: translateZ(0) scale(0);
   }
   70% {
     opacity: 1;
-    transform: scale(1.05);
+    transform: translateZ(0) scale(1.08);
+  }
+  85% {
+    transform: translateZ(0) scale(0.97);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) scale(1);
   }
 }

@@ -14,7 +14,6 @@ function App() {
       label,
       x: cx - 300 + Math.random() * 600,
       y: cy - 200 + Math.random() * 400,
-      size: 80,
     };
     setNodes((prev) => [...prev, node]);
   }, []);
