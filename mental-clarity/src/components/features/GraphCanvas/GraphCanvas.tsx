@@ -14,9 +14,10 @@ const MOMENTUM_MIN_VELOCITY = 0.5;
 interface GraphCanvasProps {
   nodes: NodeData[];
   onNodeMove: (id: string, x: number, y: number) => void;
+  onNodeClick?: (id: string) => void;
 }
 
-export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
+export function GraphCanvas({ nodes, onNodeMove, onNodeClick }: GraphCanvasProps) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
@@ -208,6 +209,7 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
       const state = nodeDragState.current;
       if (state && !state.didMove) {
         setSelectedNodeId(state.nodeId);
+        onNodeClick?.(state.nodeId);
       }
 
       nodeDragState.current = null;
@@ -220,7 +222,7 @@ export function GraphCanvas({ nodes, onNodeMove }: GraphCanvasProps) {
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove]);
+  }, [zoom, onNodeMove, onNodeClick]);
 
   const hasNodes = nodes.length > 0;
 
