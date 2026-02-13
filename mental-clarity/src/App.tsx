@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useMutation, useQuery } from 'convex/react';
+import { api } from '../convex/_generated/api';
 import { GraphCanvas } from '@/components/features/GraphCanvas';
 import { InputBar } from '@/components/layout/InputBar';
 import { NodeDetailPanel } from '@/components/features/GraphCanvas/NodeDetailPanel';
@@ -12,13 +14,30 @@ function App() {
   const [edges, setEdges] = useState<EdgeData[]>([]);
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
   const { extract, status, isProcessing } = useAIExtraction();
+  const createThought = useMutation(api.thoughts.create);
+  const savedThoughts = useQuery(api.thoughts.list);
+
+  // Log saved thoughts count for round-trip verification
+  useEffect(() => {
+    if (savedThoughts !== undefined) {
+      console.log(`[Convex] ${savedThoughts.length} saved thought(s)`);
+    }
+  }, [savedThoughts]);
 
   const handleSubmit = useCallback(async (text: string) => {
     const result = await extract(text);
     if (!result) return;
     setNodes((prev) => [...prev, ...result.nodes]);
     setConnections((prev) => [...prev, ...result.connections]);
-  }, [extract]);
+
+    // Persist to Convex (non-blocking)
+    createThought({
+      text: result.rawText,
+      nodes: result.nodes,
+      connections: result.connections,
+      createdAt: Date.now(),
+    }).catch((err) => console.error('[Convex] Failed to save thought:', err));
+  }, [extract, createThought]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>
