@@ -1,3 +1,5 @@
-export { extractKnowledgeGraph } from './extractionService';
+export { extractTopics } from './extractionService';
+export { refineGraph } from './refinementService';
 export { ollamaHealthCheck } from './ollamaClient';
-export type { StatusCallback, ExtractionResultWithMeta } from './extractionService';
+export type { Phase1Result, StatusCallback } from './extractionService';
+export type { RefinementResult } from './refinementService';
