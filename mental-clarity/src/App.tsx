@@ -5,9 +5,12 @@ import { GraphCanvas } from '@/components/features/GraphCanvas';
 import { InputBar } from '@/components/layout/InputBar';
 import { NodeDetailPanel } from '@/components/features/GraphCanvas/NodeDetailPanel';
 import { ArchivePanel } from '@/components/features/ArchivePanel';
+import { ArchiveDropZone } from '@/components/features/ArchiveDropZone';
+import { AIRunsDashboard } from '@/components/dev/AIRunsDashboard';
 import type { EdgeData } from '@/components/features/GraphCanvas/Node';
 import type { ConnectionData, NodeData } from '@/types/graph';
 import { useAIExtraction } from '@/hooks/useAIExtraction';
+import { logAIRun } from '@/services/analytics/aiRunsClient';
 
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
@@ -15,11 +18,31 @@ function App() {
   const [edges, setEdges] = useState<EdgeData[]>([]);
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
   const [showArchive, setShowArchive] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isOverArchive, setIsOverArchive] = useState(false);
+  const archiveZoneRef = useRef<HTMLButtonElement>(null);
+  const [showDevDashboard, setShowDevDashboard] = useState(false);
   const { extract, status, isProcessing } = useAIExtraction();
   const createThought = useMutation(api.thoughts.create);
   const updateNodeMutation = useMutation(api.thoughts.updateNode);
   const deleteNodeMutation = useMutation(api.thoughts.deleteNode);
+  const createAIRun = useMutation(api.aiRuns.createRun);
   const savedThoughts = useQuery(api.thoughts.list);
+
+  // Dev dashboard hotkey: Ctrl+Shift+D or ?dev=1 in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('dev') === '1') setShowDevDashboard(true);
+
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        e.preventDefault();
+        setShowDevDashboard((prev) => !prev);
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, []);
 
   // Hydrate local state from Convex on initial load
   const hydrated = useRef(false);
@@ -55,6 +78,18 @@ function App() {
     const result = await extract(text);
     if (!result) return;
 
+    // Log the AI run (fire-and-forget)
+    logAIRun(createAIRun, {
+      dumpText: result.rawText,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      nodeCount: result.nodes.length,
+      connectionCount: result.connections.length,
+      aiStatus: result.aiStatus,
+      errorMessage: result.errorMessage,
+      meta: result.meta,
+    });
+
     // Persist to Convex first to get the document ID
     try {
       const thoughtId = await createThought({
@@ -67,11 +102,10 @@ function App() {
       setNodes((prev) => [...prev, ...nodesWithThoughtId]);
     } catch (err) {
       console.error('[Convex] Failed to save thought:', err);
-      // Still add nodes locally even if Convex fails
       setNodes((prev) => [...prev, ...result.nodes]);
     }
     setConnections((prev) => [...prev, ...result.connections]);
-  }, [extract, createThought]);
+  }, [extract, createThought, createAIRun]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>
@@ -158,6 +192,48 @@ function App() {
     setDetailNodeId(nodeId);
   }, []);
 
+  // --- Drag-to-archive ---
+
+  const handleNodeDragMove = useCallback((_nodeId: string, screenX: number, screenY: number) => {
+    setIsDragging(true);
+    const el = archiveZoneRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    // Generous hit area (32px padding around the button)
+    const pad = 32;
+    const over =
+      screenX >= rect.left - pad &&
+      screenX <= rect.right + pad &&
+      screenY >= rect.top - pad &&
+      screenY <= rect.bottom + pad;
+    setIsOverArchive(over);
+  }, []);
+
+  const handleNodeDrop = useCallback((nodeId: string, screenX: number, screenY: number) => {
+    setIsDragging(false);
+    setIsOverArchive(false);
+    const el = archiveZoneRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const pad = 32;
+    const over =
+      screenX >= rect.left - pad &&
+      screenX <= rect.right + pad &&
+      screenY >= rect.top - pad &&
+      screenY <= rect.bottom + pad;
+    if (over) {
+      handleArchiveNode(nodeId);
+    }
+  }, [handleArchiveNode]);
+
+  // --- View archived node ---
+
+  const handleViewArchivedNode = useCallback((nodeId: string) => {
+    setShowArchive(false);
+    // Small delay so archive panel closes before detail opens
+    setTimeout(() => setDetailNodeId(nodeId), 280);
+  }, []);
+
   const activeNodes = nodes.filter((n) => !n.archived);
   const archivedNodes = nodes.filter((n) => n.archived);
   const detailNode = detailNodeId ? nodes.find((n) => n.id === detailNodeId) ?? null : null;
@@ -169,34 +245,21 @@ function App() {
         connections={connections}
         onNodeMove={handleNodeMove}
         onNodeClick={setDetailNodeId}
+        onNodeDragMove={handleNodeDragMove}
+        onNodeDrop={handleNodeDrop}
       />
       <InputBar
         onSubmit={handleSubmit}
         isProcessing={isProcessing}
         aiStatus={status}
       />
-      <button
+      <ArchiveDropZone
+        ref={archiveZoneRef}
+        archivedCount={archivedNodes.length}
+        isDragActive={isDragging}
+        isDragOver={isOverArchive}
         onClick={() => setShowArchive(true)}
-        style={{
-          position: 'fixed',
-          top: 'var(--space-medium)',
-          left: 'var(--space-medium)',
-          zIndex: 100,
-          border: 'none',
-          background: archivedNodes.length > 0 ? 'rgba(212, 168, 127, 0.15)' : 'rgba(0, 0, 0, 0.04)',
-          color: archivedNodes.length > 0 ? 'var(--color-warning)' : 'var(--color-text-disabled)',
-          fontFamily: 'var(--font-family-primary)',
-          fontSize: 'var(--font-size-caption)',
-          padding: 'var(--space-tiny) var(--space-small)',
-          borderRadius: 'var(--radius-medium)',
-          cursor: 'pointer',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          transition: 'background 0.2s, color 0.2s',
-        }}
-      >
-        Archive{archivedNodes.length > 0 ? ` (${archivedNodes.length})` : ''}
-      </button>
+      />
       {detailNode && (
         <NodeDetailPanel
           key={detailNode.id}
@@ -216,8 +279,12 @@ function App() {
           nodes={archivedNodes}
           onRestore={handleRestoreNode}
           onDelete={handleDeleteNode}
+          onView={handleViewArchivedNode}
           onClose={() => setShowArchive(false)}
         />
+      )}
+      {showDevDashboard && (
+        <AIRunsDashboard onClose={() => setShowDevDashboard(false)} />
       )}
     </>
   );

@@ -23,10 +23,11 @@ interface ArchivePanelProps {
   nodes: NodeData[];
   onRestore: (id: string) => void;
   onDelete: (id: string) => void;
+  onView: (id: string) => void;
   onClose: () => void;
 }
 
-export function ArchivePanel({ nodes, onRestore, onDelete, onClose }: ArchivePanelProps) {
+export function ArchivePanel({ nodes, onRestore, onDelete, onView, onClose }: ArchivePanelProps) {
   const [isClosing, setIsClosing] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -85,7 +86,11 @@ export function ArchivePanel({ nodes, onRestore, onDelete, onClose }: ArchivePan
                     background: CATEGORY_COLORS[node.category ?? 'personal'],
                   }}
                 />
-                <div className={styles.cardInfo}>
+                <div
+                  className={styles.cardInfo}
+                  onClick={() => onView(node.id)}
+                  style={{ cursor: 'pointer' }}
+                >
                   <div className={styles.cardLabel}>{node.label}</div>
                   <div className={styles.cardDate}>
                     {formatDate(node.createdAt)}
