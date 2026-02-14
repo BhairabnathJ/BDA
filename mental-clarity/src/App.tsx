@@ -21,7 +21,9 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isOverArchive, setIsOverArchive] = useState(false);
   const archiveZoneRef = useRef<HTMLButtonElement>(null);
-  const [showDevDashboard, setShowDevDashboard] = useState(false);
+  const [showDevDashboard, setShowDevDashboard] = useState(
+    () => new URLSearchParams(window.location.search).get('dev') === '1',
+  );
   const { extract, status, isProcessing } = useAIExtraction();
   const createThought = useMutation(api.thoughts.create);
   const updateNodeMutation = useMutation(api.thoughts.updateNode);
@@ -29,11 +31,8 @@ function App() {
   const createAIRun = useMutation(api.aiRuns.createRun);
   const savedThoughts = useQuery(api.thoughts.list);
 
-  // Dev dashboard hotkey: Ctrl+Shift+D or ?dev=1 in URL
+  // Dev dashboard hotkey: Ctrl+Shift+D
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('dev') === '1') setShowDevDashboard(true);
-
     const handleKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'D') {
         e.preventDefault();
