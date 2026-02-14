@@ -11,7 +11,7 @@ interface NodeDetailPanelProps {
   nodes: NodeData[];
   edges: EdgeData[];
   onUpdate: (id: string, updates: Partial<Pick<NodeData, 'label' | 'content'>>) => void;
-  onDelete: (id: string) => void;
+  onArchive: (id: string) => void;
   onAddEdge: (sourceId: string, targetId: string) => void;
   onRemoveEdge: (edgeId: string) => void;
   onNavigate: (nodeId: string) => void;
@@ -23,7 +23,7 @@ export function NodeDetailPanel({
   nodes,
   edges,
   onUpdate,
-  onDelete,
+  onArchive,
   onAddEdge,
   onRemoveEdge,
   onNavigate,
@@ -32,7 +32,6 @@ export function NodeDetailPanel({
   const [label, setLabel] = useState(node.label);
   const [isClosing, setIsClosing] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const labelSaveTimeout = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -69,14 +68,10 @@ export function NodeDetailPanel({
     setTimeout(onClose, 250);
   }, [label, node.id, node.label, onUpdate, onClose]);
 
-  const handleDelete = useCallback(() => {
-    if (!showDeleteConfirm) {
-      setShowDeleteConfirm(true);
-      return;
-    }
+  const handleArchive = useCallback(() => {
     setIsClosing(true);
-    setTimeout(() => onDelete(node.id), 250);
-  }, [showDeleteConfirm, node.id, onDelete]);
+    setTimeout(() => onArchive(node.id), 250);
+  }, [node.id, onArchive]);
 
   const handleContentUpdate = useCallback(
     (html: string) => {
@@ -90,16 +85,12 @@ export function NodeDetailPanel({
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (showDeleteConfirm) {
-          setShowDeleteConfirm(false);
-        } else {
-          handleClose();
-        }
+        handleClose();
       }
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [handleClose, showDeleteConfirm]);
+  }, [handleClose]);
 
   // Backdrop click
   const handleBackdropClick = useCallback(
@@ -142,26 +133,9 @@ export function NodeDetailPanel({
 
         <div className={styles.footer}>
           <div className={styles.footerActions}>
-            {showDeleteConfirm ? (
-              <>
-                <button
-                  className={styles.cancelBtn}
-                  onClick={() => setShowDeleteConfirm(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className={styles.confirmDeleteBtn}
-                  onClick={handleDelete}
-                >
-                  Confirm Delete
-                </button>
-              </>
-            ) : (
-              <button className={styles.deleteBtn} onClick={handleDelete}>
-                Delete thought
-              </button>
-            )}
+            <button className={styles.archiveBtn} onClick={handleArchive}>
+              Archive thought
+            </button>
           </div>
         </div>
       </div>

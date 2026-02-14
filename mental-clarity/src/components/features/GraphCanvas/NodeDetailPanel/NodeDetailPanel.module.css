@@ -488,12 +488,12 @@
   background: var(--color-bg-base);
 }
 
-.deleteBtn {
+.archiveBtn {
   border: none;
   background: transparent;
   font-family: var(--font-family-primary);
   font-size: var(--font-size-caption);
-  color: var(--color-error);
+  color: var(--color-warning);
   cursor: pointer;
   padding: var(--space-micro) var(--space-tiny);
   border-radius: var(--radius-small);
@@ -502,44 +502,9 @@
               background var(--duration-fast) var(--ease-smooth);
 }
 
-.deleteBtn:hover {
+.archiveBtn:hover {
   opacity: 1;
-  background: rgba(197, 143, 143, 0.1);
-}
-
-.cancelBtn {
-  border: none;
-  background: transparent;
-  font-family: var(--font-family-primary);
-  font-size: var(--font-size-caption);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: var(--space-micro) var(--space-tiny);
-  border-radius: var(--radius-small);
-  transition: opacity var(--duration-fast) var(--ease-smooth);
-}
-
-.cancelBtn:hover {
-  opacity: 0.7;
-}
-
-.confirmDeleteBtn {
-  border: none;
-  background: rgba(197, 143, 143, 0.15);
-  font-family: var(--font-family-primary);
-  font-size: var(--font-size-caption);
-  color: var(--color-error);
-  cursor: pointer;
-  padding: var(--space-micro) var(--space-tiny);
-  border-radius: var(--radius-small);
-  font-weight: 500;
-  transition: background var(--duration-fast) var(--ease-smooth),
-              color var(--duration-fast) var(--ease-smooth);
-}
-
-.confirmDeleteBtn:hover {
-  background: var(--color-error);
-  color: white;
+  background: rgba(212, 168, 127, 0.12);
 }
 
 .footerActions {
