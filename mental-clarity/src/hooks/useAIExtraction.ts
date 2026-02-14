@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractKnowledgeGraph } from '@/services/ai';
-import type { AIServiceStatus, ExtractionResult } from '@/types/graph';
+import type { ExtractionResultWithMeta } from '@/services/ai';
+import type { AIServiceStatus } from '@/types/graph';
 
 interface UseAIExtractionReturn {
-  extract: (text: string) => Promise<ExtractionResult | null>;
+  extract: (text: string) => Promise<ExtractionResultWithMeta | null>;
   status: AIServiceStatus;
   isProcessing: boolean;
 }
@@ -12,8 +13,8 @@ export function useAIExtraction(): UseAIExtractionReturn {
   const [status, setStatus] = useState<AIServiceStatus>('idle');
   const activeRef = useRef(false);
 
-  const extract = useCallback(async (text: string): Promise<ExtractionResult | null> => {
-    if (activeRef.current) return null; // Prevent concurrent extractions
+  const extract = useCallback(async (text: string): Promise<ExtractionResultWithMeta | null> => {
+    if (activeRef.current) return null;
     activeRef.current = true;
 
     try {
@@ -25,14 +26,16 @@ export function useAIExtraction(): UseAIExtractionReturn {
       return null;
     } finally {
       activeRef.current = false;
-      // Reset to idle after a brief delay so UI can show completion
       setTimeout(() => setStatus('idle'), 1500);
     }
   }, []);
 
   const isProcessing = status === 'checking'
     || status === 'extracting-entities'
-    || status === 'extracting-relationships';
+    || status === 'extracting-topics'
+    || status === 'extracting-relationships'
+    || status === 'refining-hierarchy'
+    || status === 'finding-connections';
 
   return { extract, status, isProcessing };
 }
