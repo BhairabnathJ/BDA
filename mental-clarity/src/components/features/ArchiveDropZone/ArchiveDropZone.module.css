@@ -1,0 +1,86 @@
+/* =========================================
+   ARCHIVE DROP ZONE — Top-left archive button with drag target
+   ========================================= */
+
+.zone {
+    position: fixed;
+    top: var(--space-medium);
+    left: var(--space-medium);
+    z-index: 100;
+    border: none;
+    font-family: var(--font-family-primary);
+    font-size: var(--font-size-caption);
+    padding: var(--space-tiny) var(--space-small);
+    border-radius: var(--radius-medium);
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.25s var(--ease-smooth),
+        color 0.25s var(--ease-smooth),
+        transform 0.25s var(--ease-organic),
+        box-shadow 0.25s var(--ease-smooth),
+        border-color 0.25s var(--ease-smooth);
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--color-text-disabled);
+    border: 1.5px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: var(--space-micro);
+}
+
+/* Has archived items */
+.hasItems {
+    background: rgba(212, 168, 127, 0.15);
+    color: var(--color-warning);
+}
+
+.zone:hover {
+    background: rgba(212, 168, 127, 0.2);
+    color: var(--color-warning);
+    transform: scale(1.04);
+}
+
+/* When a node is being dragged anywhere on the canvas */
+.dragActive {
+    background: rgba(212, 168, 127, 0.12);
+    color: var(--color-warning);
+    border-color: rgba(212, 168, 127, 0.35);
+    animation: pulseGlow 1.5s var(--ease-smooth) infinite;
+}
+
+/* When the dragged node is directly hovering over the zone */
+.dragOver {
+    background: rgba(212, 168, 127, 0.35);
+    color: var(--color-warning);
+    border-color: rgba(212, 168, 127, 0.7);
+    transform: scale(1.12);
+    box-shadow: 0 0 20px rgba(212, 168, 127, 0.4),
+        0 0 40px rgba(212, 168, 127, 0.15);
+    animation: none;
+}
+
+/* Icon */
+.icon {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* Count badge */
+.count {
+    font-size: var(--font-size-tiny);
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+/* Pulse animation when drag is active */
+@keyframes pulseGlow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(212, 168, 127, 0);
+    }
+
+    50% {
+        box-shadow: 0 0 12px 4px rgba(212, 168, 127, 0.25);
+    }
+}

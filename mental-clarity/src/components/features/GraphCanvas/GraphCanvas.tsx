@@ -18,9 +18,11 @@ interface GraphCanvasProps {
   connections?: ConnectionData[];
   onNodeMove: (id: string, x: number, y: number) => void;
   onNodeClick?: (id: string) => void;
+  onNodeDragMove?: (nodeId: string, screenX: number, screenY: number) => void;
+  onNodeDrop?: (nodeId: string, screenX: number, screenY: number) => void;
 }
 
-export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick }: GraphCanvasProps) {
+export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop }: GraphCanvasProps) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
@@ -206,13 +208,23 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick }
       const clampedY = Math.max(-40, newY);
 
       onNodeMove(state.nodeId, clampedX, clampedY);
+
+      // Emit screen-space position for drag-to-archive hit testing
+      if (state.didMove) {
+        onNodeDragMove?.(state.nodeId, e.clientX, e.clientY);
+      }
     };
 
-    const handleDocMouseUp = () => {
+    const handleDocMouseUp = (e: MouseEvent) => {
       const state = nodeDragState.current;
-      if (state && !state.didMove) {
-        setSelectedNodeId(state.nodeId);
-        onNodeClick?.(state.nodeId);
+      if (state) {
+        if (state.didMove) {
+          // Emit drop position for archive zone hit testing
+          onNodeDrop?.(state.nodeId, e.clientX, e.clientY);
+        } else {
+          setSelectedNodeId(state.nodeId);
+          onNodeClick?.(state.nodeId);
+        }
       }
 
       nodeDragState.current = null;
@@ -225,7 +237,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick }
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove, onNodeClick]);
+  }, [zoom, onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop]);
 
   const hasNodes = nodes.length > 0;
 
