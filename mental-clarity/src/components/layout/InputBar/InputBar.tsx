@@ -13,8 +13,12 @@ interface InputBarProps {
 function statusMessage(status?: AIServiceStatus): string {
   switch (status) {
     case 'checking': return 'Connecting to AI...';
-    case 'extracting-entities': return 'Extracting topics...';
-    case 'extracting-relationships': return 'Finding connections...';
+    case 'extracting-entities':
+    case 'extracting-topics': return 'Extracting topics...';
+    case 'refining-hierarchy': return 'Organizing hierarchy...';
+    case 'extracting-relationships':
+    case 'finding-connections': return 'Finding connections...';
+    case 'extracting-tasks': return 'Extracting tasks...';
     default: return 'Processing...';
   }
 }
