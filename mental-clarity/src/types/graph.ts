@@ -1,23 +1,52 @@
-// ── Node types ──
+// ── Node hierarchy ──
 
+export type NodeKind = 'umbrella' | 'subnode';
 export type NodeCategory = 'organic' | 'technical' | 'creative' | 'learning' | 'personal';
 
 export interface NodeData {
   id: string;
   label: string;
+  kind?: NodeKind;
+  category?: NodeCategory;
+  parentIds?: string[];
+  pageId?: string | null;
   x: number;
   y: number;
   content?: string;
-  category?: NodeCategory;
   archived?: boolean;
   thoughtId?: string;
+  createdFromDumpId?: string;
   createdAt: number;
   updatedAt: number;
 }
 
-// ── Connection types ──
+// ── Pages & Contexts ──
 
-export type ConnectionType = 'related' | 'causes' | 'part-of' | 'depends-on' | 'similar' | 'contrasts';
+export interface ContextSegment {
+  text: string;
+  timestamp: number;
+  dumpId: string;
+}
+
+export interface PageContext {
+  parentId: string;
+  parentName: string;
+  segments: ContextSegment[];
+  summary?: string;
+}
+
+export interface PageData {
+  id: string;
+  title: string;
+  content: string;
+  contexts: PageContext[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ── Connections ──
+
+export type ConnectionType = 'related' | 'causes' | 'part-of' | 'depends-on' | 'similar' | 'contrasts' | 'direct' | 'semantic';
 
 export interface ConnectionData {
   id: string;
@@ -29,7 +58,27 @@ export interface ConnectionData {
   createdAt: number;
 }
 
+// ── Brain dumps ──
+
+export interface DumpData {
+  id: string;
+  text: string;
+  createdAt: number;
+}
+
 // ── AI extraction types ──
+
+export interface ExtractedTopic {
+  label: string;
+  level: 1 | 2;
+  kind: NodeKind;
+  category: NodeCategory;
+  parentLabel?: string;
+}
+
+export interface TopicExtractionResponse {
+  topics: ExtractedTopic[];
+}
 
 export interface ExtractedEntity {
   label: string;
@@ -52,6 +101,28 @@ export interface RelationshipExtractionResponse {
   relationships: ExtractedRelationship[];
 }
 
+export interface NodeMatchResult {
+  label: string;
+  match: { existingNodeId: string; similarity: number } | null;
+  parents: {
+    parentId: string;
+    contextSegment: string;
+  }[];
+}
+
+export interface NodeMatchingResponse {
+  topics: NodeMatchResult[];
+}
+
+export interface ExtractedTask {
+  label: string;
+  relatedTopic: string;
+}
+
+export interface TaskExtractionResponse {
+  tasks: ExtractedTask[];
+}
+
 export interface ExtractionResult {
   nodes: NodeData[];
   connections: ConnectionData[];
@@ -60,4 +131,28 @@ export interface ExtractionResult {
 
 // ── AI service status ──
 
-export type AIServiceStatus = 'idle' | 'checking' | 'extracting-entities' | 'extracting-relationships' | 'error' | 'unavailable';
+export type AIServiceStatus =
+  | 'idle'
+  | 'checking'
+  | 'extracting-entities'
+  | 'extracting-topics'
+  | 'extracting-relationships'
+  | 'refining-hierarchy'
+  | 'finding-connections'
+  | 'extracting-tasks'
+  | 'error'
+  | 'unavailable';
+
+// ── AI Run analytics ──
+
+export interface AIRunTimings {
+  entitiesMs: number;
+  hierarchyMs?: number;
+  relationshipsMs: number;
+}
+
+export interface AIRunMeta {
+  timings: AIRunTimings;
+  graphDensity: number;
+  avgStrength: number;
+}
