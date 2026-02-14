@@ -24,3 +24,41 @@ export const list = query({
     return await ctx.db.query("thoughts").order("desc").collect();
   },
 });
+
+export const updateNode = mutation({
+  args: {
+    thoughtId: v.id("thoughts"),
+    nodeId: v.string(),
+    updates: v.any(),
+  },
+  handler: async (ctx, args) => {
+    const thought = await ctx.db.get(args.thoughtId);
+    if (!thought) throw new Error("Thought not found");
+
+    const nodes = (thought.nodes as Array<Record<string, unknown>>).map((n) =>
+      n.id === args.nodeId ? { ...n, ...args.updates } : n,
+    );
+
+    await ctx.db.patch(args.thoughtId, { nodes });
+  },
+});
+
+export const deleteNode = mutation({
+  args: {
+    thoughtId: v.id("thoughts"),
+    nodeId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const thought = await ctx.db.get(args.thoughtId);
+    if (!thought) throw new Error("Thought not found");
+
+    const nodes = (thought.nodes as Array<Record<string, unknown>>).filter(
+      (n) => n.id !== args.nodeId,
+    );
+    const connections = (thought.connections as Array<Record<string, unknown>>).filter(
+      (c) => c.sourceId !== args.nodeId && c.targetId !== args.nodeId,
+    );
+
+    await ctx.db.patch(args.thoughtId, { nodes, connections });
+  },
+});
