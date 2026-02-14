@@ -9,6 +9,8 @@ export interface NodeData {
   y: number;
   content?: string;
   category?: NodeCategory;
+  archived?: boolean;
+  thoughtId?: string;
   createdAt: number;
   updatedAt: number;
 }
