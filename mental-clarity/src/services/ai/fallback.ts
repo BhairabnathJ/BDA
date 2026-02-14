@@ -1,6 +1,6 @@
-import type { NodeCategory, ExtractionResult, NodeData, ConnectionData } from '@/types/graph';
+import type { NodeCategory, NodeData } from '@/types/graph';
 
-export function fallbackExtract(text: string): ExtractionResult {
+export function fallbackExtract(text: string, dumpId?: string): NodeData[] {
   const chunks = text
     .split(/[.,;!?]+|\band\b|\bbut\b|\balso\b/i)
     .map((s) => s.trim())
@@ -27,25 +27,13 @@ export function fallbackExtract(text: string): ExtractionResult {
       pageId: null,
       x: cx - 250 + Math.random() * 500,
       y: cy - 200 + Math.random() * 400,
+      createdFromDumpId: dumpId,
       createdAt: now,
       updatedAt: now,
     });
   }
 
-  const connections: ConnectionData[] = [];
-  for (let i = 1; i < nodes.length; i++) {
-    connections.push({
-      id: crypto.randomUUID(),
-      sourceId: nodes[i - 1].id,
-      targetId: nodes[i].id,
-      label: 'related to',
-      type: 'related',
-      strength: 0.4,
-      createdAt: now,
-    });
-  }
-
-  return { nodes, connections, rawText: text };
+  return nodes;
 }
 
 function guessCategory(text: string): NodeCategory {

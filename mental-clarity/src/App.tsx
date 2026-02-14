@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { GraphCanvas } from '@/components/features/GraphCanvas';
@@ -8,14 +8,20 @@ import { ArchivePanel } from '@/components/features/ArchivePanel';
 import { ArchiveDropZone } from '@/components/features/ArchiveDropZone';
 import { AIRunsDashboard } from '@/components/dev/AIRunsDashboard';
 import type { EdgeData } from '@/components/features/GraphCanvas/Node';
-import type { ConnectionData, NodeData } from '@/types/graph';
+import type { ConnectionData, NodeData, PageData, DumpData } from '@/types/graph';
 import { useAIExtraction } from '@/hooks/useAIExtraction';
+import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
 
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [connections, setConnections] = useState<ConnectionData[]>([]);
   const [edges, setEdges] = useState<EdgeData[]>([]);
+  // Pages and dumps are populated by AI extraction and will be used by PagePanel (Phase 3)
+  const [pages, setPages] = useState<PageData[]>([]);
+  void pages;
+  const [dumps, setDumps] = useState<DumpData[]>([]);
+  void dumps;
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
   const [showArchive, setShowArchive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -24,12 +30,18 @@ function App() {
   const [showDevDashboard, setShowDevDashboard] = useState(
     () => new URLSearchParams(window.location.search).get('dev') === '1',
   );
-  const { extract, status, isProcessing } = useAIExtraction();
+
   const createThought = useMutation(api.thoughts.create);
   const updateNodeMutation = useMutation(api.thoughts.updateNode);
   const deleteNodeMutation = useMutation(api.thoughts.deleteNode);
   const createAIRun = useMutation(api.aiRuns.createRun);
   const savedThoughts = useQuery(api.thoughts.list);
+
+  // Ref to access latest nodes without re-creating graphCallbacks
+  const nodesRef = useRef<NodeData[]>(nodes);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  });
 
   // Dev dashboard hotkey: Ctrl+Shift+D
   useEffect(() => {
@@ -73,8 +85,32 @@ function App() {
     }
   }, [savedThoughts]);
 
+  // -- Graph Callbacks for 2-phase AI extraction --
+  const graphCallbacks: GraphCallbacks = useMemo(() => ({
+    addNodes: (newNodes: NodeData[]) =>
+      setNodes((prev) => [...prev, ...newNodes]),
+    updateNodes: (updates: Map<string, Partial<NodeData>>) =>
+      setNodes((prev) =>
+        prev.map((n) => {
+          const u = updates.get(n.id);
+          return u ? { ...n, ...u, updatedAt: Date.now() } : n;
+        }),
+      ),
+    mergeNodes: (merges: Map<string, string>) =>
+      setNodes((prev) => prev.filter((n) => !merges.has(n.id))),
+    addConnections: (newConns: ConnectionData[]) =>
+      setConnections((prev) => [...prev, ...newConns]),
+    addPages: (newPages: PageData[]) =>
+      setPages((prev) => [...prev, ...newPages]),
+    addDump: (dump: DumpData) =>
+      setDumps((prev) => [...prev, dump]),
+    getExistingNodes: () => nodesRef.current,
+  }), []);
+
+  const { submit, status, isProcessing } = useAIExtraction(graphCallbacks);
+
   const handleSubmit = useCallback(async (text: string) => {
-    const result = await extract(text);
+    const result = await submit(text);
     if (!result) return;
 
     // Log the AI run (fire-and-forget)
@@ -82,29 +118,33 @@ function App() {
       dumpText: result.rawText,
       startedAt: result.startedAt,
       finishedAt: result.finishedAt,
-      nodeCount: result.nodes.length,
-      connectionCount: result.connections.length,
+      nodeCount: result.nodeCount,
+      connectionCount: result.connectionCount,
       aiStatus: result.aiStatus,
       errorMessage: result.errorMessage,
       meta: result.meta,
     });
 
-    // Persist to Convex first to get the document ID
+    // Persist to Convex
     try {
       const thoughtId = await createThought({
         text: result.rawText,
-        nodes: result.nodes,
-        connections: result.connections,
+        nodes: nodesRef.current.filter((n) => !n.thoughtId).slice(-result.nodeCount),
+        connections: [],
         createdAt: Date.now(),
       });
-      const nodesWithThoughtId = result.nodes.map((n) => ({ ...n, thoughtId: thoughtId as string }));
-      setNodes((prev) => [...prev, ...nodesWithThoughtId]);
+      // Tag newly created nodes with thoughtId
+      setNodes((prev) =>
+        prev.map((n) =>
+          !n.thoughtId && nodesRef.current.slice(-result.nodeCount).some((rn) => rn.id === n.id)
+            ? { ...n, thoughtId: thoughtId as string }
+            : n,
+        ),
+      );
     } catch (err) {
       console.error('[Convex] Failed to save thought:', err);
-      setNodes((prev) => [...prev, ...result.nodes]);
     }
-    setConnections((prev) => [...prev, ...result.connections]);
-  }, [extract, createThought, createAIRun]);
+  }, [submit, createThought, createAIRun]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>
@@ -121,7 +161,7 @@ function App() {
   }, []);
 
   const handleArchiveNode = useCallback((id: string) => {
-    const node = nodes.find((n) => n.id === id);
+    const node = nodesRef.current.find((n) => n.id === id);
     setNodes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, archived: true, updatedAt: Date.now() } : n)),
     );
@@ -134,10 +174,10 @@ function App() {
         updates: { archived: true, updatedAt: Date.now() },
       }).catch((err) => console.error('[Convex] Failed to archive node:', err));
     }
-  }, [nodes, updateNodeMutation]);
+  }, [updateNodeMutation]);
 
   const handleRestoreNode = useCallback((id: string) => {
-    const node = nodes.find((n) => n.id === id);
+    const node = nodesRef.current.find((n) => n.id === id);
     setNodes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, archived: false, updatedAt: Date.now() } : n)),
     );
@@ -149,15 +189,20 @@ function App() {
         updates: { archived: false, updatedAt: Date.now() },
       }).catch((err) => console.error('[Convex] Failed to restore node:', err));
     }
-  }, [nodes, updateNodeMutation]);
+  }, [updateNodeMutation]);
 
   const handleDeleteNode = useCallback((id: string) => {
-    const node = nodes.find((n) => n.id === id);
+    const node = nodesRef.current.find((n) => n.id === id);
     setNodes((prev) => prev.filter((n) => n.id !== id));
     setConnections((prev) => prev.filter(
       (c) => c.sourceId !== id && c.targetId !== id,
     ));
     setEdges((prev) => prev.filter((e) => e.sourceId !== id && e.targetId !== id));
+    setPages((prev) => {
+      const nodeObj = nodesRef.current.find((n) => n.id === id);
+      if (nodeObj?.pageId) return prev.filter((p) => p.id !== nodeObj.pageId);
+      return prev;
+    });
     setDetailNodeId(null);
 
     if (node?.thoughtId) {
@@ -166,7 +211,7 @@ function App() {
         nodeId: id,
       }).catch((err) => console.error('[Convex] Failed to delete node:', err));
     }
-  }, [nodes, deleteNodeMutation]);
+  }, [deleteNodeMutation]);
 
   const handleAddEdge = useCallback((sourceId: string, targetId: string) => {
     setEdges((prev) => {
@@ -198,7 +243,6 @@ function App() {
     const el = archiveZoneRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    // Generous hit area (32px padding around the button)
     const pad = 32;
     const over =
       screenX >= rect.left - pad &&
@@ -229,7 +273,6 @@ function App() {
 
   const handleViewArchivedNode = useCallback((nodeId: string) => {
     setShowArchive(false);
-    // Small delay so archive panel closes before detail opens
     setTimeout(() => setDetailNodeId(nodeId), 280);
   }, []);
 
