@@ -58,3 +58,21 @@ export const listByRun = query({
       .collect();
   },
 });
+
+export const listByRunIds = query({
+  args: {
+    runIds: v.array(v.id("ai_runs")),
+  },
+  handler: async (ctx, args) => {
+    if (args.runIds.length === 0) return [];
+    const byRun = await Promise.all(
+      args.runIds.map((runId) =>
+        ctx.db
+          .query("connection_reviews")
+          .withIndex("by_run", (q) => q.eq("runId", runId))
+          .collect(),
+      ),
+    );
+    return byRun.flat();
+  },
+});

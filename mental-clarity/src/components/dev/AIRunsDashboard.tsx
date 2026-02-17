@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { Fragment, useState, useMemo, useCallback, useEffect } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { AIRunMeta, PromptMetricsSummary } from '@/types/graph';
@@ -19,13 +19,19 @@ interface RunArtifactConnection {
 interface AIRunDoc {
   _id: string;
   dumpText: string;
+  inputHash?: string;
   sessionId?: string;
   mode?: string;
   backend?: string;
   quant?: string;
+  quality?: {
+    score?: number;
+    note?: string;
+  };
   artifacts?: {
     nodes?: RunArtifactNode[];
     connections?: RunArtifactConnection[];
+    tasks?: { label: string; relatedTopic: string }[];
   };
   model: string;
   promptVersion: string;
@@ -40,6 +46,7 @@ interface AIRunDoc {
 }
 
 interface ConnectionReviewDoc {
+  runId: string;
   connectionKey: string;
   verdict: 'accept' | 'reject';
 }
@@ -56,6 +63,25 @@ function formatDate(ts: number): string {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+function toGroupKey(run: AIRunDoc, withSession: boolean): string {
+  const inputHash = run.inputHash ?? 'no-hash';
+  if (!withSession) return inputHash;
+  return `${inputHash}::${run.sessionId ?? 'no-session'}`;
+}
+
+function groupLabel(run: AIRunDoc, withSession: boolean): string {
+  const hash = (run.inputHash ?? 'no-hash').slice(0, 10);
+  const prefix = run.dumpText.trim().replace(/\s+/g, ' ').slice(0, 42);
+  if (!withSession) return `${hash} · ${prefix}`;
+  const sess = (run.sessionId ?? 'no-session').slice(0, 8);
+  return `${hash}/${sess} · ${prefix}`;
+}
+
+function formatDelta(value: number): string {
+  if (value === 0) return '0';
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function exportCSV(runs: AIRunDoc[]): void {
@@ -132,60 +158,71 @@ function exportCSV(runs: AIRunDoc[]): void {
 }
 
 // Mini SVG line chart
-function MiniChart({ runs, yKey }: { runs: AIRunDoc[]; yKey: 'durationMs' | 'nodeCount' }) {
-  if (runs.length < 2) return null;
+interface ChartSeries {
+  label: string;
+  color: string;
+  values: number[];
+}
 
-  const sorted = [...runs].sort((a, b) => a.finishedAt - b.finishedAt);
-  const values = sorted.map((r) => r[yKey]);
-  const maxY = Math.max(...values, 1);
-  const minY = Math.min(...values, 0);
+function MultiLineChart({ title, series }: { title: string; series: ChartSeries[] }) {
+  const pointCount = series[0]?.values.length ?? 0;
+  if (pointCount < 2 || series.length === 0) return null;
+
+  const allValues = series.flatMap((s) => s.values);
+  const maxY = Math.max(...allValues, 1);
+  const minY = Math.min(...allValues, 0);
   const rangeY = maxY - minY || 1;
-
-  const w = 600;
-  const h = 120;
+  const w = 620;
+  const h = 140;
   const pad = 24;
 
-  const points = sorted.map((_, i) => {
-    const x = pad + (i / (sorted.length - 1)) * (w - 2 * pad);
-    const y = h - pad - ((values[i] - minY) / rangeY) * (h - 2 * pad);
-    return `${x},${y}`;
-  });
+  const toPoints = (values: number[]) =>
+    values.map((v, i) => {
+      const x = pad + (i / (pointCount - 1)) * (w - 2 * pad);
+      const y = h - pad - ((v - minY) / rangeY) * (h - 2 * pad);
+      return `${x},${y}`;
+    });
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 11, color: '#6B6B6B', marginBottom: 4 }}>
-        {yKey === 'durationMs' ? 'Duration (ms)' : 'Node Count'} over time
-      </div>
-      <svg width={w} height={h} style={{ background: 'rgba(255,255,255,0.3)', borderRadius: 8, border: '1px solid rgba(168,197,209,0.15)' }}>
-        {/* Y-axis labels */}
-        <text x={pad - 4} y={pad} textAnchor="end" fontSize={9} fill="#A8A8A8">{maxY}</text>
-        <text x={pad - 4} y={h - pad} textAnchor="end" fontSize={9} fill="#A8A8A8">{minY}</text>
-        {/* Grid lines */}
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: '#6B6B6B', marginBottom: 4 }}>{title}</div>
+      <svg
+        width={w}
+        height={h}
+        style={{ background: 'rgba(255,255,255,0.3)', borderRadius: 8, border: '1px solid rgba(168,197,209,0.15)' }}
+      >
+        <text x={pad - 4} y={pad} textAnchor="end" fontSize={9} fill="#A8A8A8">{maxY.toFixed(1)}</text>
+        <text x={pad - 4} y={h - pad} textAnchor="end" fontSize={9} fill="#A8A8A8">{minY.toFixed(1)}</text>
         <line x1={pad} y1={pad} x2={w - pad} y2={pad} stroke="rgba(0,0,0,0.04)" />
         <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="rgba(0,0,0,0.04)" />
-        {/* Line */}
-        <polyline
-          fill="none"
-          stroke="#A8C5D1"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          points={points.join(' ')}
-        />
-        {/* Dots */}
-        {points.map((p, i) => {
-          const [cx, cy] = p.split(',');
+        {series.map((s) => {
+          const points = toPoints(s.values);
           return (
-            <circle
-              key={i}
-              cx={cx}
-              cy={cy}
-              r={3}
-              fill="#8BA5B8"
-            />
+            <g key={s.label}>
+              <polyline
+                fill="none"
+                stroke={s.color}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                points={points.join(' ')}
+              />
+              {points.map((p, i) => {
+                const [cx, cy] = p.split(',');
+                return <circle key={`${s.label}_${i}`} cx={cx} cy={cy} r={2.2} fill={s.color} />;
+              })}
+            </g>
           );
         })}
       </svg>
+      <div style={{ display: 'flex', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+        {series.map((s) => (
+          <span key={`${title}_${s.label}`} style={{ fontSize: 10, color: 'var(--color-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 10, background: s.color, display: 'inline-block' }} />
+            {s.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -239,7 +276,7 @@ function PromptMetricCard({ label, metrics }: { label: string; metrics?: PromptM
 
 const COLUMN_HEADERS = [
   '', 'Finished At', 'Duration', 'Nodes', 'Conns', 'Status',
-  'tok/s (A)', 'Tokens', 'Entities', 'Relations', 'Tasks', 'Model',
+  'ΔDur', 'ΔConns', 'tok/s (A)', 'Tokens', 'Entities', 'Relations', 'Tasks', 'Model',
 ];
 
 export function AIRunsDashboard({
@@ -254,20 +291,65 @@ export function AIRunsDashboard({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [backendFilter, setBackendFilter] = useState<string>('all');
   const [quantFilter, setQuantFilter] = useState<string>('all');
+  const [groupWithSession, setGroupWithSession] = useState<boolean>(true);
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string>('all');
+  const [baselineId, setBaselineId] = useState<string>('latest');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const upsertConnectionReview = useMutation(anyApi.connectionReviews.upsertReview as any) as (args: any) => Promise<unknown>;
+  const setRunQuality = useMutation(anyApi.aiRuns.setRunQuality as any) as (args: any) => Promise<unknown>;
 
-  const runs = useMemo(() => {
+  const allRuns = useMemo(() => {
     if (!rawRuns) return [];
-    const typed = rawRuns as unknown as AIRunDoc[];
-    return typed.filter((r) => {
+    return rawRuns as unknown as AIRunDoc[];
+  }, [rawRuns]);
+
+  const filteredRuns = useMemo(() => {
+    return allRuns.filter((r) => {
       if (statusFilter !== 'all' && r.aiStatus !== statusFilter) return false;
       if (backendFilter !== 'all' && (r.backend ?? 'unknown') !== backendFilter) return false;
       if (quantFilter !== 'all' && (r.quant ?? 'unknown') !== quantFilter) return false;
       return true;
     });
-  }, [rawRuns, statusFilter, backendFilter, quantFilter]);
+  }, [allRuns, statusFilter, backendFilter, quantFilter]);
+
+  const groupOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: { key: string; label: string }[] = [];
+    for (const run of filteredRuns) {
+      const key = toGroupKey(run, groupWithSession);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({ key, label: groupLabel(run, groupWithSession) });
+    }
+    return options;
+  }, [filteredRuns, groupWithSession]);
+
+  useEffect(() => {
+    if (selectedGroupKey === 'all') return;
+    if (!groupOptions.some((opt) => opt.key === selectedGroupKey)) {
+      setSelectedGroupKey('all');
+    }
+  }, [groupOptions, selectedGroupKey]);
+
+  const runs = useMemo(() => {
+    if (selectedGroupKey === 'all') return filteredRuns;
+    return filteredRuns.filter((r) => toGroupKey(r, groupWithSession) === selectedGroupKey);
+  }, [filteredRuns, groupWithSession, selectedGroupKey]);
+
+  useEffect(() => {
+    if (runs.length === 0) return;
+    if (baselineId === 'latest') return;
+    if (!runs.some((r) => r._id === baselineId)) {
+      setBaselineId('latest');
+    }
+  }, [runs, baselineId]);
+
+  const baselineRun = useMemo(() => {
+    if (runs.length === 0) return null;
+    if (baselineId === 'latest') return runs[0];
+    return runs.find((r) => r._id === baselineId) ?? runs[0];
+  }, [runs, baselineId]);
 
   const expandedRun = useMemo(
     () => runs.find((r) => r._id === expandedId) ?? null,
@@ -279,14 +361,81 @@ export function AIRunsDashboard({
     expandedRun ? { runId: expandedRun._id as never } : "skip",
   ) as ConnectionReviewDoc[] | undefined;
 
+  const runReviews = useQuery(
+    anyApi.connectionReviews.listByRunIds as any,
+    runs.length > 0 ? { runIds: runs.map((r) => r._id as never) } : "skip",
+  ) as ConnectionReviewDoc[] | undefined;
+
   const reviewMap = useMemo(
     () => new Map((activeReviews ?? []).map((r) => [r.connectionKey, r.verdict])),
     [activeReviews],
   );
 
+  const reviewCountsByRun = useMemo(() => {
+    const counts = new Map<string, { accept: number; reject: number }>();
+    for (const rr of runReviews ?? []) {
+      const current = counts.get(rr.runId) ?? { accept: 0, reject: 0 };
+      if (rr.verdict === 'accept') current.accept += 1;
+      if (rr.verdict === 'reject') current.reject += 1;
+      counts.set(rr.runId, current);
+    }
+    return counts;
+  }, [runReviews]);
+
+  const chartRuns = useMemo(
+    () => [...runs].slice(0, 40).sort((a, b) => a.finishedAt - b.finishedAt),
+    [runs],
+  );
+
   const handleExport = useCallback(() => {
     exportCSV(runs);
   }, [runs]);
+
+  const durationSeries = useMemo<ChartSeries[]>(
+    () => [
+      {
+        label: chartMetric === 'durationMs' ? 'Duration (ms)' : 'Node Count',
+        color: '#8BA5B8',
+        values: chartRuns.map((r) => chartMetric === 'durationMs' ? r.durationMs : r.nodeCount),
+      },
+    ],
+    [chartMetric, chartRuns],
+  );
+
+  const qualitySeries = useMemo<ChartSeries[]>(() => {
+    const scored = chartRuns.filter((r) => typeof r.quality?.score === 'number');
+    if (scored.length < 2) return [];
+    return [{
+      label: 'Human quality',
+      color: '#7FB89F',
+      values: scored.map((r) => r.quality?.score ?? 0),
+    }];
+  }, [chartRuns]);
+
+  const outputSeries = useMemo<ChartSeries[]>(
+    () => [
+      { label: 'Nodes', color: '#8BA5B8', values: chartRuns.map((r) => r.nodeCount) },
+      { label: 'Conns', color: '#C58F8F', values: chartRuns.map((r) => r.connectionCount) },
+      { label: 'Tasks', color: '#D4A87F', values: chartRuns.map((r) => r.artifacts?.tasks?.length ?? 0) },
+    ],
+    [chartRuns],
+  );
+
+  const connectionReviewSeries = useMemo<ChartSeries[]>(
+    () => [
+      {
+        label: 'Accepted',
+        color: '#7FB89F',
+        values: chartRuns.map((r) => reviewCountsByRun.get(r._id)?.accept ?? 0),
+      },
+      {
+        label: 'Rejected',
+        color: '#C58F8F',
+        values: chartRuns.map((r) => reviewCountsByRun.get(r._id)?.reject ?? 0),
+      },
+    ],
+    [chartRuns, reviewCountsByRun],
+  );
 
   return (
     <div style={{
@@ -363,7 +512,7 @@ export function AIRunsDashboard({
 
       <div style={{ padding: '16px 24px', maxWidth: 1200 }}>
         {/* Filters */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Status:</label>
           <select
             value={statusFilter}
@@ -438,10 +587,89 @@ export function AIRunsDashboard({
             <option value="durationMs">Duration (ms)</option>
             <option value="nodeCount">Node Count</option>
           </select>
+
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 16 }}>Group:</label>
+          <select
+            value={selectedGroupKey}
+            onChange={(e) => setSelectedGroupKey(e.target.value)}
+            style={{
+              border: '1px solid rgba(168,197,209,0.3)',
+              background: 'white',
+              padding: '4px 8px',
+              borderRadius: 4,
+              fontSize: 12,
+              fontFamily: 'inherit',
+              minWidth: 220,
+            }}
+          >
+            <option value="all">All inputs</option>
+            {groupOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 12 }}>Session split:</label>
+          <input
+            type="checkbox"
+            checked={groupWithSession}
+            onChange={(e) => setGroupWithSession(e.target.checked)}
+          />
+
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 16 }}>Baseline:</label>
+          <select
+            value={baselineId}
+            onChange={(e) => setBaselineId(e.target.value)}
+            style={{
+              border: '1px solid rgba(168,197,209,0.3)',
+              background: 'white',
+              padding: '4px 8px',
+              borderRadius: 4,
+              fontSize: 12,
+              fontFamily: 'inherit',
+              minWidth: 180,
+            }}
+          >
+            <option value="latest">Latest in view</option>
+            {runs.map((r) => (
+              <option key={r._id} value={r._id}>
+                {formatDate(r.finishedAt)}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Chart */}
-        <MiniChart runs={runs} yKey={chartMetric} />
+        {baselineRun && (
+          <div
+            style={{
+              marginBottom: 14,
+              fontSize: 11,
+              color: 'var(--color-text-secondary)',
+              background: 'rgba(168,197,209,0.06)',
+              border: '1px solid rgba(168,197,209,0.12)',
+              borderRadius: 6,
+              padding: '8px 10px',
+            }}
+          >
+            Baseline: {formatDate(baselineRun.finishedAt)} · {baselineRun.durationMs}ms · {baselineRun.nodeCount} nodes · {baselineRun.connectionCount} conns
+          </div>
+        )}
+
+        {/* Charts */}
+        <MultiLineChart
+          title={chartMetric === 'durationMs' ? 'Duration over time' : 'Node count over time'}
+          series={durationSeries}
+        />
+        {qualitySeries.length > 0 ? (
+          <MultiLineChart title="Human quality score over time" series={qualitySeries} />
+        ) : (
+          <div style={{ marginBottom: 12, fontSize: 11, color: 'var(--color-text-disabled)' }}>
+            Quality chart appears after at least two runs are scored.
+          </div>
+        )}
+        <MultiLineChart title="Output counts trend (nodes/connections/tasks)" series={outputSeries} />
+        <MultiLineChart title="Accepted vs rejected connections" series={connectionReviewSeries} />
 
         {/* Table */}
         {rawRuns === undefined ? (
@@ -474,11 +702,12 @@ export function AIRunsDashboard({
                     (pm?.promptB?.evalTokens ?? 0) +
                     (pm?.promptC?.evalTokens ?? 0) +
                     (pm?.promptD?.evalTokens ?? 0);
+                  const baselineDurationDelta = baselineRun ? run.durationMs - baselineRun.durationMs : 0;
+                  const baselineConnDelta = baselineRun ? run.connectionCount - baselineRun.connectionCount : 0;
 
                   return (
-                    <>
+                    <Fragment key={run._id}>
                       <tr
-                        key={run._id}
                         onClick={() => setExpandedId(isExpanded ? null : run._id)}
                         style={{
                           borderBottom: isExpanded ? 'none' : '1px solid rgba(168,197,209,0.1)',
@@ -513,6 +742,12 @@ export function AIRunsDashboard({
                           }}>
                             {run.aiStatus}
                           </span>
+                        </td>
+                        <td style={{ ...tdStyle, color: baselineDurationDelta <= 0 ? 'var(--color-success)' : 'var(--color-warning)' }}>
+                          {formatDelta(baselineDurationDelta)}ms
+                        </td>
+                        <td style={{ ...tdStyle, color: baselineConnDelta >= 0 ? 'var(--color-success)' : 'var(--color-error)' }}>
+                          {formatDelta(baselineConnDelta)}
                         </td>
                         <td style={{ ...tdStyle, fontWeight: 500 }}>
                           {pm?.promptA?.tokensPerSec ? `${pm.promptA.tokensPerSec.toFixed(1)}` : '-'}
@@ -552,6 +787,92 @@ export function AIRunsDashboard({
                             )}
                             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-disabled)' }}>
                               Backend: {run.backend ?? 'unknown'} · Quant: {run.quant ?? 'unknown'}
+                            </div>
+                            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-disabled)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span>Quality:</span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRunQuality({ runId: run._id, score: 1 }).catch((err: unknown) => console.error('[Quality] Failed to set score:', err));
+                                }}
+                                style={{
+                                  border: '1px solid rgba(168,197,209,0.25)',
+                                  background: run.quality?.score === 1 ? 'rgba(127,184,159,0.24)' : 'rgba(168,197,209,0.1)',
+                                  borderRadius: 6,
+                                  padding: '2px 7px',
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                1
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRunQuality({ runId: run._id, score: 2 }).catch((err: unknown) => console.error('[Quality] Failed to set score:', err));
+                                }}
+                                style={{
+                                  border: '1px solid rgba(168,197,209,0.25)',
+                                  background: run.quality?.score === 2 ? 'rgba(127,184,159,0.24)' : 'rgba(168,197,209,0.1)',
+                                  borderRadius: 6,
+                                  padding: '2px 7px',
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                2
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRunQuality({ runId: run._id, score: 3 }).catch((err: unknown) => console.error('[Quality] Failed to set score:', err));
+                                }}
+                                style={{
+                                  border: '1px solid rgba(168,197,209,0.25)',
+                                  background: run.quality?.score === 3 ? 'rgba(127,184,159,0.24)' : 'rgba(168,197,209,0.1)',
+                                  borderRadius: 6,
+                                  padding: '2px 7px',
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                3
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRunQuality({ runId: run._id, score: 4 }).catch((err: unknown) => console.error('[Quality] Failed to set score:', err));
+                                }}
+                                style={{
+                                  border: '1px solid rgba(168,197,209,0.25)',
+                                  background: run.quality?.score === 4 ? 'rgba(127,184,159,0.24)' : 'rgba(168,197,209,0.1)',
+                                  borderRadius: 6,
+                                  padding: '2px 7px',
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                4
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRunQuality({ runId: run._id, score: 5 }).catch((err: unknown) => console.error('[Quality] Failed to set score:', err));
+                                }}
+                                style={{
+                                  border: '1px solid rgba(168,197,209,0.25)',
+                                  background: run.quality?.score === 5 ? 'rgba(127,184,159,0.24)' : 'rgba(168,197,209,0.1)',
+                                  borderRadius: 6,
+                                  padding: '2px 7px',
+                                  fontSize: 10,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                5
+                              </button>
+                              <span style={{ marginLeft: 4 }}>
+                                {run.quality?.score ? `Current ${run.quality.score}/5` : 'Unscored'}
+                              </span>
                             </div>
                             <div style={{ marginTop: 10 }}>
                               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
@@ -678,7 +999,7 @@ export function AIRunsDashboard({
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
