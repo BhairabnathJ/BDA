@@ -1,400 +1,1500 @@
-# Implementation Plan: Mental Clarity - Foundation & Design System
+# Hierarchical AI Node System — Implementation Plan
 
-## Overview
-This plan establishes the bedrock for the Mental Clarity application. We are building a high-performance, custom-designed React application without heavy UI frameworks. The goal is to set up a robust development environment and implement the comprehensive design system (tokens, typography, colors) defined in the UI/UX specification immediately, so all future components can be built using these standardized values.
+Turn raw brain dumps into a navigable 3-layer knowledge graph: **Umbrellas** (broad life areas) → **Subnodes** (specific themes) → **Pages** (editable detail with per-parent context). Powered by local Ollama + Qwen 2.5 14B with a 5-prompt progressive AI pipeline.
 
-**Tech Stack:**
-- **Framework:** React 18+ (Vite)
-- **Language:** TypeScript
-- **Styling:** CSS Modules + vanilla CSS Variables (Design Tokens)
-- **Tooling:** Vite, ESLint, Prettier
+---
 
-## Step-by-Step Implementation Guide
+## 1. Architecture Overview
 
-### Phase 1: Project Initialization & Configuration
+```mermaid
+flowchart TB
+  subgraph User ["User Layer"]
+    A["InputBar — brain dump text"]
+  end
 
-#### 1. Initialize Vite Project
-Run the following commands to create the project and install basic dependencies.
+  subgraph AI ["AI Pipeline (Ollama, local)"]
+    B["Prompt A: Topic + Hierarchy"]
+    C["Prompt B: Node Matching + Multi-Parent"]
+    D["Prompt C: Relationships"]
+    E["Prompt D: Tasks (optional)"]
+    F["Prompt E: Summaries (deferred)"]
+  end
 
-```bash
-# Initialize Vite project with React and TypeScript
-npm create vite@latest mental-clarity -- --template react-ts
+  subgraph State ["App State (React)"]
+    G["nodes[] — umbrellas + subnodes"]
+    H["connections[]"]
+    I["pages[] — content + contexts"]
+    J["dumps[] — raw text history"]
+  end
 
-# Navigate to project directory
-cd mental-clarity
+  subgraph Render ["Render Layer"]
+    K["GraphCanvas + ConnectionsLayer"]
+    L["Node circles (sized by kind)"]
+    M["PagePanel — right-side detail"]
+  end
 
-# Install core dependencies
-npm install
-
-# Install class utility for cleaner CSS modules usage
-# (We will use this to combine classes conditionally)
-npm install clsx
+  A --> B
+  B -->|"~1-2s"| G
+  B --> C & D
+  C -->|"~2s"| G
+  D -->|"~2s"| H
+  E -.->|"optional"| I
+  F -.->|"on page open"| I
+  G --> K
+  H --> K
+  K --> L
+  I --> M
 ```
 
-#### 2. Configure Paths & Aliases
-Update `vite.config.ts` to support absolute imports (e.g., `@/components` instead of `../../components`).
+### Two-phase UX flow
 
-**File:** `vite.config.ts`
+| Phase | Timing | What happens | Source |
+|---|---|---|---|
+| **Instant** | 0–2s | Prompt A returns → topic nodes appear on canvas (all as subnodes initially) | `extractionService` |
+| **Refinement** | 2–4s | Prompts B+C run in parallel → some nodes promote to umbrellas, subnodes snap to parents, connections appear, multi-parent markers show | `refinementService` |
+
+User perception: *"Stuff appears quickly, then gets more organized on its own."*
+
+### Key decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Storage | In-memory React state (Phase 0–3), localStorage persistence (Phase 4+) | Local-first, no backend needed yet. Spec mentions Convex but the codebase has none — defer to later |
+| AI pipeline | 5 prompts, 2-phase execution | A runs first for speed; B+C run in parallel for refinement |
+| Node hierarchy | `kind` field + `parentIds[]` | Multi-parent via array, renders differently for umbrella vs subnode |
+| Page model | Separate `PageData` with `contexts[]` | One page per node, context segments grouped per parent |
+| Layout | Umbrella-centric radial layout | Umbrellas in ring around center, subnodes orbit their parent |
+
+---
+
+## 2. Ollama Setup & Modelfile
+
+### Installation (macOS, M3 Max)
+
+```bash
+brew install ollama
+ollama serve                    # starts on localhost:11434
+ollama pull qwen2.5:14b
+```
+
+### [NEW] [MentalClarity.Modelfile](file:///Users/theri/Documents/trials/BDA/mental-clarity/ollama/MentalClarity.Modelfile)
+
+```dockerfile
+FROM qwen2.5:14b
+
+PARAMETER temperature 0.3
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_ctx 4096
+PARAMETER repeat_penalty 1.1
+PARAMETER num_predict 2048
+PARAMETER stop "<|im_end|>"
+
+SYSTEM """You are a knowledge-graph extraction engine for Mental Clarity, a thought-organization app.
+
+Your job: analyze brain-dump text and extract structured information as JSON.
+
+Rules:
+1. ALWAYS respond with valid JSON only — no markdown, no prose, no code fences
+2. Extract meaningful entities and organize them into a hierarchy
+3. Assign categories: "organic", "technical", "creative", "learning", or "personal"
+4. Keep labels concise (1–4 words)
+5. Identify broad life areas as umbrellas and specific themes as subnodes
+6. Prefer specific over generic — never extract "thing", "stuff", "it"
+"""
+```
+
+```bash
+ollama create mental-clarity -f ./ollama/MentalClarity.Modelfile
+```
+
+| Parameter | Value | Why |
+|---|---|---|
+| `temperature` | 0.3 | Low creativity → consistent JSON |
+| `num_ctx` | 4096 | Handles ~3000 words |
+| `num_predict` | 2048 | Room for complex hierarchy JSON |
+
+---
+
+## 3. Type System
+
+### [NEW] [graph.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/types/graph.ts)
+
+This replaces the existing [.gitkeep](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/hooks/.gitkeep) and becomes the canonical type source.
+
 ```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+// ── Node hierarchy ──
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-})
-```
+export type NodeKind = 'umbrella' | 'subnode';
+export type NodeCategory = 'organic' | 'technical' | 'creative' | 'learning' | 'personal';
 
-**File:** `tsconfig.json` (Add paths to compilerOptions)
-```json
-{
-  "compilerOptions": {
-    /* ... existing options ... */
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
-  },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+export interface NodeData {
+  id: string;
+  label: string;
+  kind: NodeKind;
+  category: NodeCategory;
+  parentIds: string[];          // empty for top-level umbrellas
+  pageId: string | null;
+  x: number;
+  y: number;
+  createdFromDumpId?: string;
+  createdAt: number;
+  updatedAt: number;
 }
+
+// ── Pages & Contexts ──
+
+export interface ContextSegment {
+  text: string;
+  timestamp: number;
+  dumpId: string;
+}
+
+export interface PageContext {
+  parentId: string;
+  parentName: string;
+  segments: ContextSegment[];
+  summary?: string;             // filled by Prompt E later
+}
+
+export interface PageData {
+  id: string;
+  title: string;
+  content: string;              // user-editable rich text / markdown
+  contexts: PageContext[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ── Connections ──
+
+export type ConnectionType = 'direct' | 'semantic' | 'causes' | 'part-of' | 'contrasts';
+
+export interface ConnectionData {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  label: string;
+  type: ConnectionType;
+  strength: number;             // 0.0–1.0
+  createdAt: number;
+}
+
+// ── Brain dumps ──
+
+export interface DumpData {
+  id: string;
+  text: string;
+  createdAt: number;
+}
+
+// ── AI response shapes ──
+
+export interface ExtractedTopic {
+  label: string;
+  level: 1 | 2;
+  kind: NodeKind;
+  category: NodeCategory;
+  parentLabel?: string;         // only for subnodes
+}
+
+export interface TopicExtractionResponse {
+  topics: ExtractedTopic[];
+}
+
+export interface NodeMatchResult {
+  label: string;
+  match: { existingNodeId: string; similarity: number } | null;
+  parents: {
+    parentId: string;
+    contextSegment: string;
+  }[];
+}
+
+export interface NodeMatchingResponse {
+  topics: NodeMatchResult[];
+}
+
+export interface ExtractedRelationship {
+  sourceLabel: string;
+  targetLabel: string;
+  label: string;
+  type: ConnectionType;
+  strength: number;
+}
+
+export interface RelationshipResponse {
+  relationships: ExtractedRelationship[];
+}
+
+export interface ExtractedTask {
+  label: string;
+  relatedTopic: string;
+}
+
+export interface TaskExtractionResponse {
+  tasks: ExtractedTask[];
+}
+
+// ── Service status ──
+
+export type AIServiceStatus =
+  | 'idle'
+  | 'checking'
+  | 'extracting-topics'         // Prompt A
+  | 'refining-hierarchy'        // Prompt B
+  | 'finding-connections'       // Prompt C
+  | 'extracting-tasks'          // Prompt D
+  | 'error'
+  | 'unavailable';
 ```
 
-If `tsconfig.app.json` exists (common in newer Vite templates), update that instead or as well.
+### [MODIFY] [Node/types.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/types.ts)
 
-#### 3. Create Directory Structure
-Delete almost everything in `src/` (except `main.tsx`, `vite-env.d.ts`) and create this structure:
+Re-export from canonical source for backward compat:
 
-```bash
-# Clean up initial files
-rm src/App.tsx src/App.css src/index.css src/assets/react.svg
-
-# Create directory structure
-mkdir -p src/assets/fonts
-mkdir -p src/assets/images
-mkdir -p src/components/ui       # Reusable atoms (Buttons, Inputs)
-mkdir -p src/components/layout   # Structural components
-mkdir -p src/components/features # Feature-specific components
-mkdir -p src/hooks               # Custom React hooks
-mkdir -p src/services            # API and logic services
-mkdir -p src/styles              # Global styles and tokens
-mkdir -p src/types               # TypeScript definitions
-mkdir -p src/utils               # Helper functions
-mkdir -p src/pages               # Page-level components
+```typescript
+export type { NodeData } from '@/types/graph';
 ```
 
 ---
 
-### Phase 2: Design System Implementation
+## 4. Service Layer
 
-#### 4. Implement Design Tokens (CSS Variables)
-This is the most critical step. We will defined ALL design values from the spec as standard CSS variables.
+### File structure
 
-**File:** `src/styles/variables.css`
-```css
-/* DESIGN TOKENS - Source: UIUXspec.md */
+```
+src/services/ai/
+├── index.ts                # Public barrel export
+├── ollamaClient.ts         # Low-level HTTP client for Ollama
+├── prompts.ts              # All 5 prompt templates (A–E)
+├── schemas.ts              # JSON validation per prompt
+├── extractionService.ts    # Phase 1: Prompt A (fast initial extraction)
+├── refinementService.ts    # Phase 2: Prompts B+C in parallel
+├── fallback.ts             # Graceful degradation when AI unavailable
+└── cache.ts                # In-memory LRU cache
+```
 
-:root {
-  /* =========================================
-     COLOR PALETTE
-     ========================================= */
-  
-  /* Backgrounds */
-  --color-bg-base: #F5F1E8;
-  --color-bg-dark: #E8E2D5;
-  --color-overlay: rgba(0, 0, 0, 0.4);
+---
 
-  /* Accents */
-  --color-primary: #A8C5D1;    /* Soft Blue */
-  --color-primary-dark: #8BA5B8;
-  --color-primary-light: rgba(168, 197, 209, 0.1);
-  --color-secondary: #B8D4C2;  /* Soft Sage */
-  --color-secondary-dark: #9FB89F;
+### [NEW] [ollamaClient.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/ollamaClient.ts)
 
-  /* Node Categories (Gradients) */
-  --gradient-organic: linear-gradient(135deg, #E8C5B5, #D4A89F);
-  --gradient-technical: linear-gradient(135deg, #A8C5D1, #8BA5B8);
-  --gradient-creative: linear-gradient(135deg, #D5B8D4, #B89FB8);
-  --gradient-learning: linear-gradient(135deg, #B8D4C2, #9FB89F);
-  --gradient-personal: linear-gradient(135deg, #F5E6D3, #D4C5B5);
+```typescript
+const OLLAMA_BASE = 'http://localhost:11434';
+const MODEL = 'mental-clarity';
+const TIMEOUT_MS = 30_000;
 
-  /* UI Elements */
-  --color-text-primary: #2C2C2C;
-  --color-text-secondary: #6B6B6B;
-  --color-text-disabled: #A8A8A8;
-  
-  --color-border: #D4CFC5;
-  --color-success: #7FB89F;
-  --color-warning: #D4A87F;
-  --color-error: #C58F8F;
-  --color-error-hover: #B57F7F;
-
-  /* Opacity Helper (Variables for reuse in rgba) */
-  --opacity-full: 1;
-  --opacity-strong: 0.85;
-  --opacity-medium: 0.6;
-  --opacity-light: 0.4;
-  --opacity-very-light: 0.2;
-  --opacity-barely: 0.1;
-
-  /* =========================================
-     TYPOGRAPHY
-     ========================================= */
-  
-  --font-family-primary: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Font Sizes */
-  --font-size-hero: 48px;     /* Desktop default */
-  --font-size-title: 28px;
-  --font-size-heading: 20px;
-  --font-size-body: 16px;
-  --font-size-caption: 13px;
-  --font-size-tiny: 11px;
-
-  /* Line Heights */
-  --line-height-hero: 1.1;
-  --line-height-title: 1.2;
-  --line-height-heading: 1.3;
-  --line-height-body: 1.5;
-  --line-height-caption: 1.4;
-  --line-height-tiny: 1.3;
-
-  /* Letter Spacing */
-  --letter-spacing-base: -0.02em;
-
-  /* =========================================
-     SPACING SYSTEM (Base Unit: 8px)
-     ========================================= */
-  
-  --space-micro: 4px;   /* 0.5 units */
-  --space-tiny: 8px;    /* 1 unit */
-  --space-small: 16px;  /* 2 units */
-  --space-medium: 24px; /* 3 units */
-  --space-large: 32px;  /* 4 units */
-  --space-xl: 48px;     /* 6 units */
-  --space-xxl: 64px;    /* 8 units */
-  --space-huge: 96px;   /* 12 units */
-
-  /* Responsive Spacing (Defaults) */
-  --space-screen-edge: 32px;
-  --space-content-padding: 24px;
-  --space-section: 48px;
-
-  /* =========================================
-     CORNER RADIUS
-     ========================================= */
-  
-  --radius-micro: 4px;
-  --radius-small: 8px;
-  --radius-medium: 12px;
-  --radius-large: 20px;
-  --radius-xl: 32px;
-  --radius-circle: 50%;
-  --radius-pill: 9999px;
-
-  /* =========================================
-     SHADOWS
-     ========================================= */
-  
-  --shadow-subtle: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-medium: 0 4px 16px rgba(0, 0, 0, 0.12);
-  --shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.16);
-
-  /* =========================================
-     ANIMATION & MOTION
-     ========================================= */
-  
-  /* Easing Curves */
-  --ease-smooth: cubic-bezier(0.4, 0.0, 0.2, 1);
-  --ease-organic: cubic-bezier(0.33, 1, 0.68, 1);
-  --ease-spring: cubic-bezier(0.5, 1.5, 0.5, 1);
-  --ease-slow-start: cubic-bezier(0.7, 0, 0.84, 0);
-  --ease-quick-exit: cubic-bezier(0.4, 0, 1, 1);
-
-  /* Durations */
-  --duration-micro: 150ms;
-  --duration-fast: 250ms;
-  --duration-standard: 450ms;
-  --duration-slow: 700ms;
-  --duration-very-slow: 1250ms;
-  --duration-cinematic: 2000ms;
-}
-
-/* =========================================
-   RESPONSIVE OVERRIDES
-   ========================================= */
-
-@media (max-width: 1023px) { /* Tablet */
-  :root {
-    --font-size-hero: 40px;
-    --font-size-title: 24px;
-    --font-size-heading: 18px;
-    --font-size-body: 15px;
-    --font-size-caption: 12px;
-
-    --space-screen-edge: 24px;
-    --space-content-padding: 16px;
-    --space-section: 32px;
+export async function ollamaGenerate(prompt: string): Promise<string> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, prompt, stream: false, format: 'json' }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`Ollama ${res.status}`);
+    const data = await res.json();
+    return data.response;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-@media (max-width: 767px) { /* Mobile */
-  :root {
-    --font-size-hero: 32px;
-    --font-size-title: 20px;
-    --font-size-heading: 16px;
-    --font-size-body: 14px;
-    --font-size-caption: 11px;
+export async function ollamaHealthCheck(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/tags`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+```
 
-    --space-screen-edge: 16px;
-    --space-content-padding: 12px;
-    --space-section: 24px;
+---
+
+### [NEW] [prompts.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/prompts.ts)
+
+#### Prompt A — Topic Extraction + Hierarchy
+
+```typescript
+export function promptA_TopicHierarchy(text: string): string {
+  return `Analyze this brain dump and extract topics organized into a hierarchy.
+
+Text: "${text}"
+
+Return ONLY this JSON structure:
+{
+  "topics": [
+    {
+      "label": "short name (1-4 words)",
+      "level": 1 or 2,
+      "kind": "umbrella" or "subnode",
+      "category": "organic|technical|creative|learning|personal",
+      "parentLabel": "umbrella label (only if kind=subnode)"
+    }
+  ]
+}
+
+Rules:
+- Extract 4–12 topics depending on text complexity
+- Level 1 = broad life areas (Work, School, Health, Money, Hobbies) → kind "umbrella"
+- Level 2 = specific themes under an umbrella → kind "subnode", must have parentLabel
+- Categories: "technical" (code/engineering), "learning" (school/study), "personal" (self/relationships), "organic" (health/lifestyle), "creative" (art/music/hobbies)
+- Every subnode must reference a valid umbrella parentLabel
+- No duplicates. No generics like "stuff" or "things"`;
+}
+```
+
+#### Prompt B — Node Matching + Multi-Parent
+
+```typescript
+export function promptB_NodeMatching(
+  text: string,
+  newTopics: { label: string; kind: string }[],
+  existingNodes: { id: string; label: string; kind: string }[],
+): string {
+  return `Given a brain dump, newly extracted topics, and existing graph nodes, decide:
+1) Does each new topic match an existing node? (similarity > 0.75 = match)
+2) Which parent umbrellas should each topic belong to?
+3) What text segment from the dump provides context for each parent relationship?
+
+Text: "${text}"
+
+New topics: ${JSON.stringify(newTopics)}
+
+Existing nodes: ${JSON.stringify(existingNodes)}
+
+Return ONLY this JSON:
+{
+  "topics": [
+    {
+      "label": "topic label",
+      "match": { "existingNodeId": "id or null", "similarity": 0.0-1.0 } | null,
+      "parents": [
+        {
+          "parentId": "umbrella node id",
+          "contextSegment": "exact quote from text relevant to this parent"
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- If a topic matches an existing node (similarity ≥ 0.75), reuse it
+- A subnode CAN have multiple parents (e.g., "sleep issues" under both Health and Work)
+- contextSegment should be a direct quote from the text (1-2 sentences)
+- Every topic must have at least 1 parent`;
+}
+```
+
+#### Prompt C — Relationships
+
+```typescript
+export function promptC_Relationships(
+  text: string,
+  nodes: { id: string; label: string }[],
+): string {
+  return `Identify relationships between these nodes based on the text.
+
+Text: "${text}"
+
+Nodes: ${JSON.stringify(nodes)}
+
+Return ONLY this JSON:
+{
+  "relationships": [
+    {
+      "sourceLabel": "node label from list",
+      "targetLabel": "different node label from list",
+      "label": "describes the relationship",
+      "type": "direct|semantic|causes|part-of|contrasts",
+      "strength": 0.1 to 1.0
+    }
+  ]
+}
+
+Rules:
+- Only use labels from the provided node list
+- Types: "direct" (explicitly mentioned together), "semantic" (thematically related), "causes" (A leads to B), "part-of" (A is subset of B), "contrasts" (A vs B)
+- Strength: 0.8-1.0 (explicit), 0.5-0.7 (implied), 0.1-0.4 (tangential)
+- Max ${Math.min(nodes.length * 2, 15)} relationships
+- Prefer quality over quantity — skip weak/obvious connections`;
+}
+```
+
+#### Prompt D — Task Extraction (optional)
+
+```typescript
+export function promptD_Tasks(
+  text: string,
+  topics: string[],
+): string {
+  return `Extract actionable tasks or TODO items from this text.
+
+Text: "${text}"
+
+Known topics: ${JSON.stringify(topics)}
+
+Return ONLY this JSON:
+{
+  "tasks": [
+    {
+      "label": "actionable task description",
+      "relatedTopic": "closest topic label from the list"
+    }
+  ]
+}
+
+Rules:
+- Only extract things the user clearly needs/wants to DO
+- relatedTopic must match a label from the list
+- Keep task labels concise but specific
+- Max 8 tasks`;
+}
+```
+
+#### Prompt E — Summary (deferred, called on page open)
+
+```typescript
+export function promptE_Summary(
+  segments: string[],
+  topicLabel: string,
+): string {
+  return `Summarize these text segments about "${topicLabel}" into 2-3 sentences.
+
+Segments:
+${segments.map((s, i) => `${i + 1}. "${s}"`).join('\n')}
+
+Return ONLY this JSON:
+{ "summary": "2-3 sentence summary" }`;
+}
+```
+
+---
+
+### [NEW] [schemas.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/schemas.ts)
+
+Runtime validation for each prompt response. Each function parses raw JSON and returns typed data, or throws.
+
+```typescript
+import type {
+  TopicExtractionResponse, ExtractedTopic, NodeKind, NodeCategory,
+  NodeMatchingResponse, NodeMatchResult,
+  RelationshipResponse, ExtractedRelationship, ConnectionType,
+  TaskExtractionResponse,
+} from '@/types/graph';
+
+const VALID_KINDS: NodeKind[] = ['umbrella', 'subnode'];
+const VALID_CATEGORIES: NodeCategory[] = ['organic', 'technical', 'creative', 'learning', 'personal'];
+const VALID_CONN_TYPES: ConnectionType[] = ['direct', 'semantic', 'causes', 'part-of', 'contrasts'];
+
+export function parseTopicResponse(raw: string): TopicExtractionResponse {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.topics)) throw new Error('Missing topics array');
+
+  const topics: ExtractedTopic[] = parsed.topics
+    .filter((t: any) => typeof t?.label === 'string' && t.label.length > 0)
+    .map((t: any) => ({
+      label: String(t.label).slice(0, 50),
+      level: t.level === 1 ? 1 : 2,
+      kind: VALID_KINDS.includes(t.kind) ? t.kind : 'subnode',
+      category: VALID_CATEGORIES.includes(t.category) ? t.category : 'organic',
+      parentLabel: t.kind === 'subnode' && typeof t.parentLabel === 'string'
+        ? t.parentLabel : undefined,
+    }));
+
+  if (topics.length === 0) throw new Error('No valid topics');
+  return { topics };
+}
+
+export function parseNodeMatchResponse(raw: string): NodeMatchingResponse {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.topics)) return { topics: [] };
+
+  const topics: NodeMatchResult[] = parsed.topics
+    .filter((t: any) => typeof t?.label === 'string')
+    .map((t: any) => ({
+      label: String(t.label),
+      match: t.match && typeof t.match.existingNodeId === 'string'
+        ? { existingNodeId: t.match.existingNodeId, similarity: Number(t.match.similarity) || 0 }
+        : null,
+      parents: Array.isArray(t.parents)
+        ? t.parents
+            .filter((p: any) => typeof p?.parentId === 'string')
+            .map((p: any) => ({
+              parentId: String(p.parentId),
+              contextSegment: String(p.contextSegment || ''),
+            }))
+        : [],
+    }));
+
+  return { topics };
+}
+
+export function parseRelationshipResponse(
+  raw: string,
+  validLabels: string[],
+): RelationshipResponse {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.relationships)) return { relationships: [] };
+
+  const labelSet = new Set(validLabels.map(l => l.toLowerCase()));
+
+  const relationships: ExtractedRelationship[] = parsed.relationships
+    .filter((r: any) => {
+      const src = String(r?.sourceLabel || '').toLowerCase();
+      const tgt = String(r?.targetLabel || '').toLowerCase();
+      return labelSet.has(src) && labelSet.has(tgt) && src !== tgt;
+    })
+    .map((r: any) => ({
+      sourceLabel: String(r.sourceLabel),
+      targetLabel: String(r.targetLabel),
+      label: String(r.label || 'related to').slice(0, 60),
+      type: VALID_CONN_TYPES.includes(r.type) ? r.type : 'semantic',
+      strength: Math.max(0.1, Math.min(1.0, Number(r.strength) || 0.5)),
+    }));
+
+  return { relationships };
+}
+
+export function parseTaskResponse(raw: string): TaskExtractionResponse {
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed.tasks)) return { tasks: [] };
+
+  return {
+    tasks: parsed.tasks
+      .filter((t: any) => typeof t?.label === 'string')
+      .map((t: any) => ({
+        label: String(t.label).slice(0, 100),
+        relatedTopic: String(t.relatedTopic || ''),
+      })),
+  };
+}
+```
+
+---
+
+### [NEW] [extractionService.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/extractionService.ts)
+
+**Phase 1 only** — fast initial extraction. Returns nodes immediately so the UI can render them while Phase 2 runs.
+
+```typescript
+import type { NodeData, DumpData, ExtractionResult, AIServiceStatus } from '@/types/graph';
+import { ollamaGenerate, ollamaHealthCheck } from './ollamaClient';
+import { promptA_TopicHierarchy } from './prompts';
+import { parseTopicResponse } from './schemas';
+import { fallbackExtract } from './fallback';
+
+// Result from Phase 1 only (no connections yet)
+export interface Phase1Result {
+  nodes: NodeData[];
+  dump: DumpData;
+}
+
+export type StatusCallback = (status: AIServiceStatus) => void;
+
+export async function extractTopics(
+  text: string,
+  onStatus?: StatusCallback,
+): Promise<Phase1Result | null> {
+  const trimmed = text.trim();
+  if (trimmed.length < 5) return null;
+
+  const input = trimmed.slice(0, 3000);
+  const dumpId = crypto.randomUUID();
+  const now = Date.now();
+
+  const dump: DumpData = { id: dumpId, text: input, createdAt: now };
+
+  // Health check
+  onStatus?.('checking');
+  const healthy = await ollamaHealthCheck();
+  if (!healthy) {
+    onStatus?.('unavailable');
+    const fb = fallbackExtract(input, dumpId);
+    return { nodes: fb, dump };
+  }
+
+  // Prompt A
+  onStatus?.('extracting-topics');
+  try {
+    const raw = await ollamaGenerate(promptA_TopicHierarchy(input));
+    const { topics } = parseTopicResponse(raw);
+
+    // Layout: umbrellas in a ring, subnodes near their parent
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+
+    const umbrellas = topics.filter(t => t.kind === 'umbrella');
+    const subnodes = topics.filter(t => t.kind === 'subnode');
+
+    const umbrellaAngleStep = (2 * Math.PI) / Math.max(umbrellas.length, 1);
+    const umbrellaRadius = Math.min(250, 80 * umbrellas.length);
+
+    // Create umbrella nodes
+    const nodes: NodeData[] = umbrellas.map((t, i) => ({
+      id: crypto.randomUUID(),
+      label: t.label,
+      kind: 'umbrella' as const,
+      category: t.category,
+      parentIds: [],
+      pageId: null,
+      x: cx + umbrellaRadius * Math.cos(umbrellaAngleStep * i - Math.PI / 2),
+      y: cy + umbrellaRadius * Math.sin(umbrellaAngleStep * i - Math.PI / 2),
+      createdFromDumpId: dumpId,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    // Build label → id map for parent resolution
+    const labelToId = new Map(nodes.map(n => [n.label.toLowerCase(), n.id]));
+
+    // Create subnode nodes positioned near their parent
+    for (const sub of subnodes) {
+      const parentId = sub.parentLabel
+        ? labelToId.get(sub.parentLabel.toLowerCase())
+        : undefined;
+      const parent = parentId
+        ? nodes.find(n => n.id === parentId)
+        : undefined;
+
+      const baseX = parent ? parent.x : cx;
+      const baseY = parent ? parent.y : cy;
+
+      nodes.push({
+        id: crypto.randomUUID(),
+        label: sub.label,
+        kind: 'subnode',
+        category: sub.category,
+        parentIds: parentId ? [parentId] : [],
+        pageId: null,
+        x: baseX + (Math.random() - 0.5) * 160,
+        y: baseY + (Math.random() - 0.5) * 160,
+        createdFromDumpId: dumpId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    return { nodes, dump };
+  } catch (err) {
+    console.warn('[AI] Prompt A failed, using fallback:', err);
+    onStatus?.('error');
+    return { nodes: fallbackExtract(input, dumpId), dump };
   }
 }
 ```
 
-#### 5. Create Global Styles & Reset
-Set up the base styles, simple reset, and font imports.
+---
 
-**File:** `src/styles/global.css`
+### [NEW] [refinementService.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/refinementService.ts)
+
+**Phase 2** — runs Prompts B + C in parallel *after* Phase 1 nodes are on screen. Returns updates to apply progressively.
+
+```typescript
+import type {
+  NodeData, ConnectionData, PageData, PageContext,
+  AIServiceStatus,
+} from '@/types/graph';
+import { ollamaGenerate } from './ollamaClient';
+import { promptB_NodeMatching, promptC_Relationships } from './prompts';
+import { parseNodeMatchResponse, parseRelationshipResponse } from './schemas';
+import type { StatusCallback } from './extractionService';
+
+export interface RefinementResult {
+  /** Nodes whose parentIds/kind changed, keyed by id */
+  nodeUpdates: Map<string, Partial<NodeData>>;
+  /** New connections to add */
+  connections: ConnectionData[];
+  /** Pages to create/update */
+  pages: PageData[];
+  /** Node IDs to merge (new → existing) */
+  merges: Map<string, string>;
+}
+
+export async function refineGraph(
+  dumpText: string,
+  dumpId: string,
+  newNodes: NodeData[],
+  existingNodes: NodeData[],
+  onStatus?: StatusCallback,
+): Promise<RefinementResult> {
+  const result: RefinementResult = {
+    nodeUpdates: new Map(),
+    connections: [],
+    pages: [],
+    merges: new Map(),
+  };
+
+  const allNodes = [...existingNodes, ...newNodes];
+  const now = Date.now();
+
+  // Run B + C in parallel
+  const [matchResult, connResult] = await Promise.allSettled([
+    // Prompt B
+    (async () => {
+      onStatus?.('refining-hierarchy');
+      const existingSlim = existingNodes.map(n => ({
+        id: n.id, label: n.label, kind: n.kind,
+      }));
+      const newSlim = newNodes.map(n => ({
+        label: n.label, kind: n.kind,
+      }));
+      const raw = await ollamaGenerate(
+        promptB_NodeMatching(dumpText, newSlim, existingSlim),
+      );
+      return parseNodeMatchResponse(raw);
+    })(),
+
+    // Prompt C
+    (async () => {
+      onStatus?.('finding-connections');
+      const nodeSlim = allNodes.map(n => ({ id: n.id, label: n.label }));
+      const raw = await ollamaGenerate(
+        promptC_Relationships(dumpText, nodeSlim),
+      );
+      return parseRelationshipResponse(
+        raw,
+        allNodes.map(n => n.label),
+      );
+    })(),
+  ]);
+
+  // Process Prompt B results
+  if (matchResult.status === 'fulfilled') {
+    const { topics } = matchResult.value;
+    for (const t of topics) {
+      // Find the new node with this label
+      const node = newNodes.find(
+        n => n.label.toLowerCase() === t.label.toLowerCase(),
+      );
+      if (!node) continue;
+
+      // If there's a match to an existing node, merge
+      if (t.match && t.match.similarity >= 0.75) {
+        result.merges.set(node.id, t.match.existingNodeId);
+      }
+
+      // Update parentIds from prompt B
+      if (t.parents.length > 0) {
+        const parentIds = t.parents
+          .map(p => p.parentId)
+          .filter(pid => allNodes.some(n => n.id === pid));
+
+        if (parentIds.length > 0) {
+          result.nodeUpdates.set(node.id, { parentIds });
+        }
+
+        // Create page with context segments
+        const pageId = crypto.randomUUID();
+        const contexts: PageContext[] = t.parents.map(p => {
+          const parentNode = allNodes.find(n => n.id === p.parentId);
+          return {
+            parentId: p.parentId,
+            parentName: parentNode?.label ?? 'Unknown',
+            segments: [{
+              text: p.contextSegment,
+              timestamp: now,
+              dumpId,
+            }],
+          };
+        });
+
+        result.pages.push({
+          id: pageId,
+          title: node.label,
+          content: '',
+          contexts,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        result.nodeUpdates.set(node.id, {
+          ...(result.nodeUpdates.get(node.id) ?? {}),
+          pageId,
+        });
+      }
+    }
+  } else {
+    console.warn('[AI] Prompt B failed:', matchResult.reason);
+  }
+
+  // Process Prompt C results
+  if (connResult.status === 'fulfilled') {
+    const labelToId = new Map(
+      allNodes.map(n => [n.label.toLowerCase(), n.id]),
+    );
+
+    result.connections = connResult.value.relationships
+      .map(rel => {
+        const srcId = labelToId.get(rel.sourceLabel.toLowerCase());
+        const tgtId = labelToId.get(rel.targetLabel.toLowerCase());
+        if (!srcId || !tgtId) return null;
+        return {
+          id: crypto.randomUUID(),
+          sourceId: srcId,
+          targetId: tgtId,
+          label: rel.label,
+          type: rel.type,
+          strength: rel.strength,
+          createdAt: now,
+        } satisfies ConnectionData;
+      })
+      .filter((c): c is ConnectionData => c !== null);
+  } else {
+    console.warn('[AI] Prompt C failed:', connResult.reason);
+  }
+
+  return result;
+}
+```
+
+---
+
+### [NEW] [fallback.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/fallback.ts)
+
+Creates nodes via simple text splitting when Ollama is unavailable.
+
+```typescript
+import type { NodeData, NodeCategory } from '@/types/graph';
+
+export function fallbackExtract(text: string, dumpId: string): NodeData[] {
+  const chunks = text
+    .split(/[.,;!?]+|\band\b|\bbut\b|\balso\b/i)
+    .map(s => s.trim())
+    .filter(s => s.length >= 3 && s.length <= 50);
+
+  const seen = new Set<string>();
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const now = Date.now();
+
+  return chunks.slice(0, 8).reduce<NodeData[]>((acc, chunk) => {
+    const label = chunk.length > 40 ? chunk.slice(0, 40) + '…' : chunk;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return acc;
+    seen.add(key);
+
+    acc.push({
+      id: crypto.randomUUID(),
+      label,
+      kind: 'subnode',
+      category: guessCategory(label),
+      parentIds: [],
+      pageId: null,
+      x: cx - 250 + Math.random() * 500,
+      y: cy - 200 + Math.random() * 400,
+      createdFromDumpId: dumpId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return acc;
+  }, []);
+}
+
+function guessCategory(text: string): NodeCategory {
+  const l = text.toLowerCase();
+  if (/code|api|server|data|bug|deploy|react|firmware|esp/i.test(l)) return 'technical';
+  if (/design|art|music|write|creative|color|guitar/i.test(l)) return 'creative';
+  if (/learn|study|read|course|quiz|calc|physics/i.test(l)) return 'learning';
+  if (/me|my|feel|health|sleep|habit|goal|family/i.test(l)) return 'personal';
+  return 'organic';
+}
+```
+
+---
+
+### [NEW] [cache.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/cache.ts)
+
+```typescript
+import type { Phase1Result } from './extractionService';
+
+const MAX = 50;
+const cache = new Map<string, Phase1Result>();
+
+function key(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function getCached(text: string): Phase1Result | undefined {
+  return cache.get(key(text));
+}
+
+export function setCache(text: string, result: Phase1Result): void {
+  const k = key(text);
+  if (cache.size >= MAX) cache.delete(cache.keys().next().value!);
+  cache.set(k, result);
+}
+```
+
+---
+
+### [NEW] [index.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/services/ai/index.ts)
+
+```typescript
+export { extractTopics } from './extractionService';
+export { refineGraph } from './refinementService';
+export { ollamaHealthCheck } from './ollamaClient';
+export type { Phase1Result, StatusCallback } from './extractionService';
+export type { RefinementResult } from './refinementService';
+```
+
+---
+
+## 5. React Integration
+
+### [NEW] [useAIExtraction.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/hooks/useAIExtraction.ts)
+
+Custom hook that orchestrates the two-phase pipeline and feeds results to state progressively.
+
+```typescript
+import { useCallback, useRef, useState } from 'react';
+import { extractTopics, refineGraph } from '@/services/ai';
+import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData } from '@/types/graph';
+
+interface UseAIExtractionReturn {
+  submit: (text: string) => Promise<void>;
+  status: AIServiceStatus;
+  isProcessing: boolean;
+}
+
+interface GraphCallbacks {
+  addNodes: (nodes: NodeData[]) => void;
+  updateNodes: (updates: Map<string, Partial<NodeData>>) => void;
+  mergeNodes: (merges: Map<string, string>) => void;
+  addConnections: (connections: ConnectionData[]) => void;
+  addPages: (pages: PageData[]) => void;
+  addDump: (dump: DumpData) => void;
+  getExistingNodes: () => NodeData[];
+}
+
+export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionReturn {
+  const [status, setStatus] = useState<AIServiceStatus>('idle');
+  const activeRef = useRef(false);
+
+  const submit = useCallback(async (text: string) => {
+    if (activeRef.current) return;
+    activeRef.current = true;
+
+    try {
+      // ── Phase 1: Fast topic extraction ──
+      const phase1 = await extractTopics(text, setStatus);
+      if (!phase1) { activeRef.current = false; return; }
+
+      // Immediately render nodes on canvas
+      callbacks.addNodes(phase1.nodes);
+      callbacks.addDump(phase1.dump);
+
+      // ── Phase 2: Refinement (runs while nodes are visible) ──
+      const existingNodes = callbacks.getExistingNodes();
+      try {
+        const refinement = await refineGraph(
+          text,
+          phase1.dump.id,
+          phase1.nodes,
+          existingNodes.filter(n =>
+            !phase1.nodes.some(pn => pn.id === n.id)
+          ),
+          setStatus,
+        );
+
+        // Apply progressive updates
+        if (refinement.nodeUpdates.size > 0) {
+          callbacks.updateNodes(refinement.nodeUpdates);
+        }
+        if (refinement.merges.size > 0) {
+          callbacks.mergeNodes(refinement.merges);
+        }
+        if (refinement.connections.length > 0) {
+          callbacks.addConnections(refinement.connections);
+        }
+        if (refinement.pages.length > 0) {
+          callbacks.addPages(refinement.pages);
+        }
+      } catch (err) {
+        console.warn('[AI] Phase 2 failed (Phase 1 nodes still visible):', err);
+      }
+
+      setStatus('idle');
+    } catch (err) {
+      console.error('[useAIExtraction]', err);
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 2000);
+    } finally {
+      activeRef.current = false;
+    }
+  }, [callbacks]);
+
+  const isProcessing = status !== 'idle' && status !== 'error' && status !== 'unavailable';
+
+  return { submit, status, isProcessing };
+}
+```
+
+---
+
+### [MODIFY] [App.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/App.tsx)
+
+Major changes: add `connections`, `pages`, `dumps` state arrays; wire up `useAIExtraction`; pass connections to [GraphCanvas](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/GraphCanvas.tsx#23-270).
+
+```diff
++import { useMemo } from 'react';
++import { useAIExtraction } from '@/hooks/useAIExtraction';
++import type { NodeData, ConnectionData, PageData, DumpData } from '@/types/graph';
+
+ function App() {
+   const [nodes, setNodes] = useState<NodeData[]>([]);
++  const [connections, setConnections] = useState<ConnectionData[]>([]);
++  const [pages, setPages] = useState<PageData[]>([]);
++  const [dumps, setDumps] = useState<DumpData[]>([]);
+   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
+
++  const graphCallbacks = useMemo(() => ({
++    addNodes: (newNodes: NodeData[]) =>
++      setNodes(prev => [...prev, ...newNodes]),
++    updateNodes: (updates: Map<string, Partial<NodeData>>) =>
++      setNodes(prev => prev.map(n => {
++        const u = updates.get(n.id);
++        return u ? { ...n, ...u, updatedAt: Date.now() } : n;
++      })),
++    mergeNodes: (merges: Map<string, string>) =>
++      setNodes(prev => prev.filter(n => !merges.has(n.id))),
++    addConnections: (newConns: ConnectionData[]) =>
++      setConnections(prev => [...prev, ...newConns]),
++    addPages: (newPages: PageData[]) =>
++      setPages(prev => [...prev, ...newPages]),
++    addDump: (dump: DumpData) =>
++      setDumps(prev => [...prev, dump]),
++    getExistingNodes: () => nodes,
++  }), [nodes]);
+
++  const { submit, status, isProcessing } = useAIExtraction(graphCallbacks);
+
++  // Delete node also removes connections and page
+   const handleDeleteNode = useCallback((id: string) => {
+     setNodes(prev => prev.filter(n => n.id !== id));
++    setConnections(prev => prev.filter(
++      c => c.sourceId !== id && c.targetId !== id
++    ));
+     setDetailNodeId(null);
+   }, []);
+
+   return (
+     <>
+       <GraphCanvas
+         nodes={nodes}
++        connections={connections}
+         onNodeMove={handleNodeMove}
+         onNodeClick={setDetailNodeId}
+       />
+-      <InputBar onSubmit={handleAddNode} />
++      <InputBar
++        onSubmit={submit}
++        isProcessing={isProcessing}
++        aiStatus={status}
++      />
+       ...
+     </>
+   );
+ }
+```
+
+---
+
+### [MODIFY] [InputBar.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/layout/InputBar/InputBar.tsx)
+
+The existing [InputBar.module.css](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/layout/InputBar/InputBar.module.css) already has `.processing`, `.processingIndicator`, and `.dot` classes. Just wire them up:
+
+```diff
++import type { AIServiceStatus } from '@/types/graph';
+
+ interface InputBarProps {
+-  onSubmit: (text: string) => void;
++  onSubmit: (text: string) => void | Promise<void>;
++  isProcessing?: boolean;
++  aiStatus?: AIServiceStatus;
+ }
+
+-export function InputBar({ onSubmit }: InputBarProps) {
++export function InputBar({ onSubmit, isProcessing = false, aiStatus }: InputBarProps) {
+
+   const handleSubmit = useCallback(() => {
+     const trimmed = value.trim();
+-    if (!trimmed) return;
+-    const label = trimmed.length > 50 ? trimmed.slice(0, 50) + '...' : trimmed;
+-    onSubmit(label);
++    if (!trimmed || isProcessing) return;
++    onSubmit(trimmed);
+     setValue('');
+-  }, [value, onSubmit]);
++  }, [value, onSubmit, isProcessing]);
+
+   // In JSX — add processing class + indicator:
+-  <div className={styles.bar}>
++  <div className={cn(styles.bar, isProcessing && styles.processing)}>
+     <input
+-      maxLength={53}
++      maxLength={3000}
++      disabled={isProcessing}
++      placeholder={isProcessing ? statusLabel(aiStatus) : "What's on your mind?"}
+     />
++    {isProcessing && (
++      <div className={styles.processingIndicator}>
++        <span className={styles.dot} />
++        <span className={styles.dot} />
++        <span className={styles.dot} />
++      </div>
++    )}
+```
+
+```typescript
+function statusLabel(s?: AIServiceStatus): string {
+  switch (s) {
+    case 'checking': return 'Connecting to AI…';
+    case 'extracting-topics': return 'Extracting topics…';
+    case 'refining-hierarchy': return 'Organizing hierarchy…';
+    case 'finding-connections': return 'Finding connections…';
+    default: return 'Processing…';
+  }
+}
+```
+
+> [!NOTE]
+> The existing CSS already has the `.processing`, `.processingIndicator`, `.dot`, and `@keyframes dotPulse` styles (lines 103–135 of [InputBar.module.css](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/layout/InputBar/InputBar.module.css)). No CSS changes needed.
+
+---
+
+## 6. Node Rendering Updates
+
+### [MODIFY] [Node.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/Node.tsx)
+
+Add `kind`, `category`, and multi-parent marker support:
+
+```diff
++import type { NodeKind } from '@/types/graph';
+
+ interface NodeProps {
+   id: string;
+   label: string;
++  kind?: NodeKind;
++  category?: string;
++  parentIds?: string[];
+   x: number;
+   y: number;
+   isSelected?: boolean;
+   isDragging?: boolean;
+   onDragStart: (id: string, e: React.MouseEvent) => void;
+ }
+
+-function computeSize(label: string): number {
++function computeSize(label: string, kind?: NodeKind): number {
++  if (kind === 'umbrella') {
++    const len = label.length;
++    if (len <= 6) return 110;
++    if (len <= 12) return 130;
++    return 150;
++  }
+   const len = label.length;
+   if (len <= 4) return 60;
+   if (len <= 8) return 80;
+   if (len <= 14) return 100;
+   return 120;
+ }
+
+ export function Node({
+-  id, label, x, y, isSelected, isDragging, onDragStart,
++  id, label, kind, category, parentIds, x, y, isSelected, isDragging, onDragStart,
+ }: NodeProps) {
+-  const size = useMemo(() => computeSize(label), [label]);
++  const size = useMemo(() => computeSize(label, kind), [label, kind]);
++  const isMultiParent = (parentIds?.length ?? 0) > 1;
+
+   return (
+     <div className={cn(
+       styles.node,
++      kind === 'umbrella' && styles.umbrella,
++      category && styles[category],
++      isMultiParent && styles.multiParent,
+       isSelected && styles.selected,
+       isDragging && styles.dragging,
+     )}>
+       <span className={styles.label}>{label}</span>
++      {isMultiParent && <span className={styles.sharedBadge}>◎</span>}
+     </div>
+   );
+ }
+```
+
+### [MODIFY] [Node.module.css](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/Node.module.css)
+
+Add umbrella + multi-parent styles (append to existing file):
+
 ```css
-@import './variables.css';
-
-/* Simple Reset */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Umbrella nodes — larger, bolder */
+.umbrella {
+  border-width: 2px;
+  font-weight: 600;
 }
 
-html, body {
-  height: 100%;
-  width: 100%;
-  overflow-x: hidden;
+.umbrella .label {
+  font-size: 17px;
+  font-weight: 600;
+  opacity: 0.95;
 }
 
-body {
-  font-family: var(--font-family-primary);
-  background-color: var(--color-bg-base);
-  color: var(--color-text-primary);
-  line-height: var(--line-height-body);
-  letter-spacing: var(--letter-spacing-base);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Multi-parent marker */
+.multiParent {
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(168, 197, 209, 0.1) inset,
+    0 0 0 3px rgba(245, 241, 232, 0.3),
+    0 0 0 5px rgba(168, 197, 209, 0.3);
 }
 
-/* Typography Defaults */
-h1 { font-size: var(--font-size-hero); line-height: var(--line-height-hero); font-weight: 300; }
-h2 { font-size: var(--font-size-title); line-height: var(--line-height-title); font-weight: 400; }
-h3 { font-size: var(--font-size-heading); line-height: var(--line-height-heading); font-weight: 500; }
-p { margin-bottom: var(--space-medium); }
-
-button {
-  font-family: inherit;
-}
-
-/* Dot Grid Background (Global Utility) */
-.bg-dot-grid {
-  background-color: var(--color-bg-base);
-  background-image: radial-gradient(var(--color-border) 2px, transparent 2px);
-  background-size: 32px 32px;
-}
-
-@media (max-width: 1023px) {
-  .bg-dot-grid { background-size: 24px 24px; }
-}
-
-@media (max-width: 767px) {
-  .bg-dot-grid { background-size: 20px 20px; }
+.sharedBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.6;
+  color: var(--color-text-secondary);
 }
 ```
 
-#### 6. Initialize App Entry Point
-Update `main.tsx` to import the global styles.
+---
 
-**File:** `src/main.tsx`
+## 7. Connection Rendering
+
+### [NEW] [ConnectionsLayer.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/ConnectionsLayer/ConnectionsLayer.tsx)
+
+SVG overlay inside the `surface` div (inherits pan/zoom transform).
+
 ```typescript
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
-import './styles/global.css' // Import global styles & tokens
+import type { ConnectionData, NodeData } from '@/types/graph';
+import styles from './ConnectionsLayer.module.css';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
-```
+interface Props {
+  connections: ConnectionData[];
+  nodes: NodeData[];
+}
 
-Create a bare-bones `App.tsx` just to verify standard styles work.
-**File:** `src/App.tsx`
-```typescript
-import React from 'react';
+export function ConnectionsLayer({ connections, nodes }: Props) {
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-function App() {
   return (
-    <div className="bg-dot-grid" style={{ minHeight: '100vh', padding: 'var(--space-screen-edge)' }}>
-      <h1>Mental Clarity</h1>
-      <p>Foundation established.</p>
-      
-      <div style={{ display: 'flex', gap: 'var(--space-small)', marginTop: 'var(--space-large)' }}>
-        <button style={{
-          backgroundColor: 'var(--color-primary)',
-          color: 'white',
-          border: 'none',
-          padding: '12px 24px',
-          borderRadius: 'var(--radius-pill)',
-          cursor: 'pointer'
-        }}>
-          Primary Button
-        </button>
-        
-        <button style={{
-          backgroundColor: 'transparent',
-          color: 'var(--color-text-secondary)',
-          border: '1px solid var(--color-border)',
-          padding: '12px 24px',
-          borderRadius: 'var(--radius-pill)',
-          cursor: 'pointer'
-        }}>
-          Secondary Button
-        </button>
-      </div>
-    </div>
+    <svg className={styles.svg}>
+      {connections.map(conn => {
+        const src = nodeMap.get(conn.sourceId);
+        const tgt = nodeMap.get(conn.targetId);
+        if (!src || !tgt) return null;
+
+        const opacity = 0.15 + conn.strength * 0.55;
+        const width = 1 + conn.strength * 2;
+        const mx = (src.x + tgt.x) / 2;
+        const my = (src.y + tgt.y) / 2;
+
+        return (
+          <g key={conn.id}>
+            <line
+              x1={src.x} y1={src.y}
+              x2={tgt.x} y2={tgt.y}
+              className={styles.line}
+              style={{ opacity, strokeWidth: width }}
+            />
+            {conn.label && (
+              <text x={mx} y={my - 6} className={styles.label}>
+                {conn.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
 }
-
-export default App;
 ```
 
-#### 7. Utility Function (Important)
-Create a `utils` file for cleaner class manipulation, equivalent to `cn()` in shadcn but using just `clsx` (since we aren't using Tailwind).
+### [NEW] [ConnectionsLayer.module.css](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/ConnectionsLayer/ConnectionsLayer.module.css)
 
-**File:** `src/utils/cn.ts`
-```typescript
-import { clsx, type ClassValue } from 'clsx';
-
-export function cn(...inputs: ClassValue[]) {
-  return clsx(inputs);
+```css
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
 }
+
+.line {
+  stroke: var(--color-primary-dark);
+  stroke-linecap: round;
+  transition: opacity var(--duration-fast) var(--ease-smooth);
+}
+
+.label {
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-tiny);
+  fill: var(--color-text-secondary);
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+```
+
+### [MODIFY] [GraphCanvas.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/GraphCanvas.tsx)
+
+```diff
++import { ConnectionsLayer } from './ConnectionsLayer/ConnectionsLayer';
++import type { ConnectionData } from '@/types/graph';
+
+ interface GraphCanvasProps {
+   nodes: NodeData[];
++  connections?: ConnectionData[];
+   onNodeMove: ...;
+   onNodeClick?: ...;
+ }
+
+-export function GraphCanvas({ nodes, onNodeMove, onNodeClick }) {
++export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick }) {
+   ...
+   <div className={styles.surface} style={{ transform: ... }}>
++    <ConnectionsLayer connections={connections} nodes={nodes} />
+     {nodes.map(node => (
+       <Node key={node.id} {...node} ... />
+     ))}
+   </div>
 ```
 
 ---
 
-### Phase 3: Verification (Acceptance Criteria)
+## 8. Error Handling Matrix
 
-Once executed, verify the following:
-1.  **Server Starts:** `npm run dev` starts without errors.
-2.  **Styles Applied:** The background should be beige (`#F5F1E8`) with a subtle dot grid pattern.
-3.  **Fonts Loaded:** Inspect element on "Mental Clarity" text - should be using system sans-serif (Inter if installed locally, or fallback). We are using system fallbacks for now to avoid Google Fonts complexity in step 1, but `variables.css` is prepared for Inter.
-4.  **Responsive:** Resizing the browser window effectively scales spacing and font sizes as per the media queries in `variables.css`.
-5.  **Clean Console:** No TS errors or warnings in the terminal.
+| Scenario | Handling |
+|---|---|
+| **Ollama not running** | Health check fails → `fallbackExtract()` creates flat nodes |
+| **Prompt A fails** | Catch → fallback, user still gets nodes |
+| **Prompt B fails** | Phase 1 nodes already on screen — just skip hierarchy refinement |
+| **Prompt C fails** | Nodes visible, no connections drawn — still useful |
+| **Timeout (>30s)** | `AbortController` fires → fallback |
+| **Malformed JSON** | Schema parsers throw → caught → fallback or skip that phase |
+| **Short input (<5 chars)** | Return `null` — no extraction attempted |
+| **Long input (>3000 chars)** | Truncate to 3000 before sending |
+| **Rapid submissions** | `activeRef` guard blocks concurrent extractions |
 
-### Next Steps (Transition)
-After this foundation is solid, the next logical step is to implement the **Base Components** (Button, Input, Modal) using these tokens, followed by the **Graph Canvas** setup using HTML5 Canvas or SVG.
+> [!IMPORTANT]
+> **Partial failure is the expected case**, not an edge case. Phase 1 always delivers *something* before Phase 2 starts. If Phase 2 fails entirely, the user still has meaningful nodes on the canvas.
+
+---
+
+## 9. Phase Breakdown (Build Order)
+
+### Phase 0 — Type System & Prep
+| File | Action | Description |
+|---|---|---|
+| `src/types/graph.ts` | NEW | All type definitions (NodeData, PageData, ConnectionData, etc.) |
+| [Node/types.ts](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/types.ts) | MODIFY | Re-export from `@/types/graph` |
+| `ollama/MentalClarity.Modelfile` | NEW | Custom model config |
+
+### Phase 1 — Prompt A + Basic Extraction
+| File | Action | Description |
+|---|---|---|
+| `src/services/ai/ollamaClient.ts` | NEW | Ollama HTTP client |
+| `src/services/ai/prompts.ts` | NEW | All prompt templates |
+| `src/services/ai/schemas.ts` | NEW | JSON validators |
+| `src/services/ai/extractionService.ts` | NEW | Phase 1 pipeline |
+| `src/services/ai/fallback.ts` | NEW | Text splitting fallback |
+| `src/services/ai/cache.ts` | NEW | LRU cache |
+| `src/services/ai/index.ts` | NEW | Barrel exports |
+| `src/hooks/useAIExtraction.ts` | NEW | React hook (Phase 1 only first) |
+| [src/App.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/App.tsx) | MODIFY | Wire up AI hook, add connections state |
+| [src/components/layout/InputBar/InputBar.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/layout/InputBar/InputBar.tsx) | MODIFY | Loading states, remove truncation |
+| [Node/Node.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/Node.tsx) | MODIFY | Accept `kind`, `category`, resize umbrellas |
+| [Node/Node.module.css](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/Node.module.css) | MODIFY | Add `.umbrella` styles |
+
+**Milestone:** User types brain dump → topic nodes appear with umbrella/subnode sizing + category colors.
+
+### Phase 2 — Prompt B + Multi-Parent + Connections
+| File | Action | Description |
+|---|---|---|
+| `src/services/ai/refinementService.ts` | NEW | Phase 2 pipeline (B+C parallel) |
+| `src/hooks/useAIExtraction.ts` | MODIFY | Add Phase 2 call after Phase 1 |
+| `ConnectionsLayer/ConnectionsLayer.tsx` | NEW | SVG connection rendering |
+| `ConnectionsLayer/ConnectionsLayer.module.css` | NEW | Connection styles |
+| [GraphCanvas.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/GraphCanvas.tsx) | MODIFY | Accept + render connections |
+| [Node/Node.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/Node.tsx) | MODIFY | Multi-parent marker (◎) |
+| [Node/Node.module.css](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/components/features/GraphCanvas/Node/Node.module.css) | MODIFY | `.multiParent`, `.sharedBadge` styles |
+
+**Milestone:** Nodes appear fast, then promote/snap to parents, connections animate in, multi-parent badges appear.
+
+### Phase 3 — Page View & Contexts UI
+| File | Action | Description |
+|---|---|---|
+| `PagePanel/PagePanel.tsx` | NEW | Right-side detail panel |
+| `PagePanel/PagePanel.module.css` | NEW | Panel styles |
+| `PagePanel/ContextCard.tsx` | NEW | Per-parent context block |
+| [App.tsx](file:///Users/theri/Documents/trials/BDA/mental-clarity/src/App.tsx) | MODIFY | Show PagePanel on node click |
+
+**Milestone:** Click any subnode → right panel with content, contexts per parent, "Also in…" list.
+
+### Phase 4 — Tasks & Summaries (Optional)
+| File | Action | Description |
+|---|---|---|
+| `src/services/ai/prompts.ts` | MODIFY | Prompts D + E already written |
+| Task extraction integration | NEW | Attach tasks to pages |
+| Summary generation on page open | NEW | Lazy Prompt E call |
+
+### Phase 5 — Persistence & Polish
+| File | Action | Description |
+|---|---|---|
+| localStorage/IndexedDB integration | NEW | Persist nodes, connections, pages, dumps |
+| Animated node promotion | NEW | Smooth transition when subnode→umbrella |
+| Connection hover tooltips | NEW | Show relationship label |
+| Force-directed layout | NEW | Physics-based auto-positioning |
+
+---
+
+## 10. Testing & Verification
+
+### Sample brain dump for testing
+
+Use the text from [sample text.md](file:///Users/theri/Documents/trials/BDA/sample%20text.md):
+
+> *"I keep thinking about AgriScan and how behind I am on the firmware. I still haven't finished the sensor calibration, and the ESP32 keeps dropping WiFi when I'm logging data..."*
+
+**Expected output from Prompt A:**
+
+| Label | Kind | Category | Parent |
+|---|---|---|---|
+| AgriScan | umbrella | technical | — |
+| Sensor calibration | subnode | technical | AgriScan |
+| ESP32 WiFi | subnode | technical | AgriScan |
+| iOS dashboard | subnode | technical | AgriScan |
+| School | umbrella | learning | — |
+| AP Calc | subnode | learning | School |
+| Physics | subnode | learning | School |
+| Health | umbrella | personal | — |
+| Sleep schedule | subnode | personal | Health |
+| Money | umbrella | organic | — |
+| AliExpress spending | subnode | organic | Money |
+| Guitar | umbrella | creative | — |
+
+**Expected multi-parent from Prompt B:** "Sleep schedule" → parents: [Health, AgriScan]
+
+### Verification steps
+
+1. **Build check:** `npm run build` — TypeScript strict catches all type errors
+2. **Browser test with Ollama running:**
+   - Paste sample text → Enter
+   - Verify: topic nodes appear in ~1-2s (some large = umbrellas, some small = subnodes)
+   - Verify: ~2-4s later, connections appear, multi-parent badges show
+   - Verify: InputBar shows progressive status messages
+3. **Browser test with Ollama stopped:**
+   - `pkill ollama` → paste same text → Enter
+   - Verify: flat nodes still appear (fallback), no crash, no infinite spinner
+4. **Drag test:** Drag a connected node → verify SVG lines follow in real-time
+5. **Short input:** Type "hi" → verify no AI call, graceful handling
