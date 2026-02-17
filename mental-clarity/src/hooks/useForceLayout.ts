@@ -1,28 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { NodeData, ConnectionData } from '@/types/graph';
 
 interface ForceLayoutConfig {
-  /** Repulsion force between all nodes */
   repulsion: number;
-  /** Attraction along connections */
   attraction: number;
-  /** Parent-child attraction (umbrella pulls subnodes) */
   parentAttraction: number;
-  /** Damping factor (0-1, lower = faster settle) */
   damping: number;
-  /** Minimum velocity to keep simulating */
   minVelocity: number;
-  /** Center gravity strength */
   centerGravity: number;
 }
 
 const DEFAULT_CONFIG: ForceLayoutConfig = {
-  repulsion: 8000,
-  attraction: 0.008,
-  parentAttraction: 0.012,
-  damping: 0.85,
-  minVelocity: 0.1,
-  centerGravity: 0.0003,
+  repulsion: 5000,
+  attraction: 0.01,
+  parentAttraction: 0.015,
+  damping: 0.82,
+  minVelocity: 0.15,
+  centerGravity: 0.0005,
 };
 
 interface NodeVelocity {
@@ -35,71 +29,82 @@ export function useForceLayout(
   connections: ConnectionData[],
   onNodeMove: (id: string, x: number, y: number) => void,
   enabled = true,
-  config: Partial<ForceLayoutConfig> = {},
 ) {
-  const cfg = useMemo(() => ({ ...DEFAULT_CONFIG, ...config }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config.repulsion, config.attraction, config.parentAttraction, config.damping, config.minVelocity, config.centerGravity],
-  );
+  // Store everything in refs so tick() always reads fresh data
+  const nodesRef = useRef(nodes);
+  const connectionsRef = useRef(connections);
+  const onNodeMoveRef = useRef(onNodeMove);
+
   const velocities = useRef<Map<string, NodeVelocity>>(new Map());
   const rafId = useRef<number>(0);
   const draggingId = useRef<string | null>(null);
   const isRunning = useRef(false);
+  const tickCount = useRef(0);
 
-  // Track which node is being dragged to exclude from physics
+  // Keep refs in sync with latest props
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { connectionsRef.current = connections; }, [connections]);
+  useEffect(() => { onNodeMoveRef.current = onNodeMove; }, [onNodeMove]);
+
   const setDragging = useCallback((nodeId: string | null) => {
     draggingId.current = nodeId;
   }, []);
 
   useEffect(() => {
-    if (!enabled || nodes.length < 2) return;
+    if (!enabled || nodes.length < 2) {
+      isRunning.current = false;
+      return;
+    }
 
     // Initialize velocities for new nodes
+    const nodeIds = new Set(nodes.map((n) => n.id));
     for (const node of nodes) {
       if (!velocities.current.has(node.id)) {
         velocities.current.set(node.id, { vx: 0, vy: 0 });
       }
     }
-
-    // Clean up stale entries
-    const nodeIds = new Set(nodes.map((n) => n.id));
     for (const key of velocities.current.keys()) {
       if (!nodeIds.has(key)) velocities.current.delete(key);
     }
 
+    // Don't restart if already running
     if (isRunning.current) return;
     isRunning.current = true;
+    tickCount.current = 0;
 
-    let tickCount = 0;
-    const maxTicks = 300; // Stop after ~5 seconds
+    const cfg = DEFAULT_CONFIG;
+    const maxTicks = 300;
 
     const tick = () => {
-      tickCount++;
-      if (tickCount > maxTicks) {
+      tickCount.current++;
+      if (tickCount.current > maxTicks) {
         isRunning.current = false;
         return;
       }
 
+      // Read fresh data from refs every tick
+      const currentNodes = nodesRef.current;
+      const currentConnections = connectionsRef.current;
+
       const cx = window.innerWidth / 2;
       const cy = window.innerHeight / 2;
 
-      // Calculate forces
       const forces = new Map<string, { fx: number; fy: number }>();
-      for (const node of nodes) {
+      for (const node of currentNodes) {
         forces.set(node.id, { fx: 0, fy: 0 });
       }
 
       // Repulsion between all node pairs
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i];
-          const b = nodes[j];
+      for (let i = 0; i < currentNodes.length; i++) {
+        for (let j = i + 1; j < currentNodes.length; j++) {
+          const a = currentNodes[i];
+          const b = currentNodes[j];
           let dx = b.x - a.x;
           let dy = b.y - a.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const distSq = dx * dx + dy * dy;
+          const dist = Math.sqrt(distSq) || 1;
 
-          // Stronger repulsion for nearby nodes
-          const force = cfg.repulsion / (dist * dist);
+          const force = cfg.repulsion / (distSq || 1);
           dx = (dx / dist) * force;
           dy = (dy / dist) * force;
 
@@ -113,8 +118,8 @@ export function useForceLayout(
       }
 
       // Attraction along connections
-      const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-      for (const conn of connections) {
+      const nodeMap = new Map(currentNodes.map((n) => [n.id, n]));
+      for (const conn of currentConnections) {
         const source = nodeMap.get(conn.sourceId);
         const target = nodeMap.get(conn.targetId);
         if (!source || !target) continue;
@@ -135,8 +140,8 @@ export function useForceLayout(
         ft.fy -= fy;
       }
 
-      // Parent-child attraction (umbrellas pull subnodes)
-      for (const node of nodes) {
+      // Parent-child attraction
+      for (const node of currentNodes) {
         if (!node.parentIds || node.parentIds.length === 0) continue;
         for (const parentId of node.parentIds) {
           const parent = nodeMap.get(parentId);
@@ -147,25 +152,22 @@ export function useForceLayout(
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
           const force = dist * cfg.parentAttraction;
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-
           const fn = forces.get(node.id)!;
-          fn.fx += fx;
-          fn.fy += fy;
+          fn.fx += (dx / dist) * force;
+          fn.fy += (dy / dist) * force;
         }
       }
 
       // Center gravity
-      for (const node of nodes) {
+      for (const node of currentNodes) {
         const f = forces.get(node.id)!;
         f.fx += (cx - node.x) * cfg.centerGravity;
         f.fy += (cy - node.y) * cfg.centerGravity;
       }
 
-      // Apply forces with Verlet integration
+      // Apply forces
       let totalVelocity = 0;
-      for (const node of nodes) {
+      for (const node of currentNodes) {
         if (node.id === draggingId.current) continue;
 
         const f = forces.get(node.id)!;
@@ -178,21 +180,18 @@ export function useForceLayout(
         totalVelocity += speed;
 
         if (speed > cfg.minVelocity) {
-          // Clamp max velocity
-          const maxV = 8;
+          const maxV = 6;
           if (speed > maxV) {
             v.vx = (v.vx / speed) * maxV;
             v.vy = (v.vy / speed) * maxV;
           }
-
-          onNodeMove(node.id, node.x + v.vx, node.y + v.vy);
+          onNodeMoveRef.current(node.id, node.x + v.vx, node.y + v.vy);
         }
 
         velocities.current.set(node.id, v);
       }
 
-      // Stop when settled
-      if (totalVelocity < cfg.minVelocity * nodes.length) {
+      if (totalVelocity < cfg.minVelocity * currentNodes.length) {
         isRunning.current = false;
         return;
       }
@@ -200,7 +199,6 @@ export function useForceLayout(
       rafId.current = requestAnimationFrame(tick);
     };
 
-    // Small delay before starting so initial positions are set
     const timer = setTimeout(() => {
       rafId.current = requestAnimationFrame(tick);
     }, 500);
@@ -210,7 +208,9 @@ export function useForceLayout(
       if (rafId.current) cancelAnimationFrame(rafId.current);
       isRunning.current = false;
     };
-  }, [nodes.length, connections.length, enabled, cfg, nodes, connections, onNodeMove]);
+    // Only restart simulation when node/connection count changes, not on position updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length, connections.length, enabled]);
 
   return { setDragging };
 }
