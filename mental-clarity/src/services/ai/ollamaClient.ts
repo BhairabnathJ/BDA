@@ -1,6 +1,6 @@
 const OLLAMA_BASE_URL = 'http://localhost:11434';
-const MODEL_NAME = 'phi3:latest';
-const REQUEST_TIMEOUT_MS = 30_000;
+const MODEL_NAME = 'qwen2.5:14b';
+const REQUEST_TIMEOUT_MS = 60_000;
 
 interface OllamaGenerateRequest {
   model: string;
