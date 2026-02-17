@@ -8,6 +8,7 @@ import type {
 import { aiGenerate } from './aiClient';
 import type { AIBackend, AIQuantProfile, OllamaMetrics } from './aiClient';
 import { promptB_NodeMatching, promptC_Relationships, promptD_Tasks } from './prompts';
+import type { PromptProfileTemplates } from './prompts';
 import { parseNodeMatchResponse, parseRelationshipResponse, parseTaskResponse } from './schemas';
 import type { StatusCallback } from './extractionService';
 
@@ -43,6 +44,7 @@ export async function refineGraph(
   existingNodes: NodeData[],
   onStatus?: StatusCallback,
   quantProfile?: AIQuantProfile,
+  promptTemplates?: PromptProfileTemplates,
 ): Promise<RefinementResult> {
   const result: RefinementResult = {
     nodeUpdates: new Map(),
@@ -74,7 +76,7 @@ export async function refineGraph(
   try {
     onStatus?.('refining-hierarchy');
     const generated = await aiGenerate(
-      promptB_NodeMatching(dumpText, newSlim, existingSlim),
+      promptB_NodeMatching(dumpText, newSlim, existingSlim, promptTemplates),
       quantProfile,
     );
     const { text: raw, metrics } = generated;
@@ -145,7 +147,7 @@ export async function refineGraph(
     onStatus?.('finding-connections');
     const nodeSlim = allNodes.map((n) => ({ id: n.id, label: n.label }));
     const generated = await aiGenerate(
-      promptC_Relationships(dumpText, nodeSlim),
+      promptC_Relationships(dumpText, nodeSlim, promptTemplates),
       quantProfile,
     );
     const { text: raw, metrics } = generated;
@@ -189,7 +191,7 @@ export async function refineGraph(
     onStatus?.('extracting-tasks');
     const topicLabels = allNodes.map((n) => n.label);
     const generated = await aiGenerate(
-      promptD_Tasks(dumpText, topicLabels),
+      promptD_Tasks(dumpText, topicLabels, promptTemplates),
       quantProfile,
     );
     const { text: raw, metrics } = generated;

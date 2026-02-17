@@ -6,6 +6,7 @@ import type {
 import { aiGenerate, aiHealthCheck } from './aiClient';
 import type { AIBackend, AIQuantProfile, OllamaMetrics, OnStreamProgress } from './aiClient';
 import { promptA_TopicHierarchy } from './prompts';
+import type { PromptProfileTemplates } from './prompts';
 import { parseTopicResponse } from './schemas';
 import { fallbackExtract } from './fallback';
 
@@ -40,6 +41,7 @@ export async function extractTopics(
   onStatus?: StatusCallback,
   onProgress?: OnStreamProgress,
   quantProfile?: AIQuantProfile,
+  promptTemplates?: PromptProfileTemplates,
 ): Promise<Phase1Result | null> {
   const trimmed = text.trim();
   if (trimmed.length < MIN_INPUT_LENGTH) return null;
@@ -76,7 +78,7 @@ export async function extractTopics(
 
   try {
     const generated = await aiGenerate(
-      promptA_TopicHierarchy(input),
+      promptA_TopicHierarchy(input, promptTemplates),
       quantProfile,
       onProgress,
     );

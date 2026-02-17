@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
 import type { AIBackend, AIQuantProfile, OllamaMetrics, StreamProgress } from '@/services/ai/aiClient';
+import type { PromptProfileTemplates } from '@/services/ai/prompts';
 import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask, AIRunArtifacts, AIRunMode } from '@/types/graph';
 
 export interface AIRunResult {
@@ -34,6 +35,7 @@ interface UseAIExtractionReturn {
     text: string,
     mode?: AIRunMode,
     quantProfile?: AIQuantProfile,
+    promptTemplates?: PromptProfileTemplates,
   ) => Promise<AIRunResult | null>;
   status: AIServiceStatus;
   isProcessing: boolean;
@@ -61,6 +63,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
     text: string,
     mode: AIRunMode = 'apply',
     quantProfile?: AIQuantProfile,
+    promptTemplates?: PromptProfileTemplates,
   ): Promise<AIRunResult | null> => {
     if (activeRef.current) return null;
     activeRef.current = true;
@@ -69,7 +72,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
 
     try {
       // -- Phase 1: Fast topic extraction (with stream progress) --
-      const phase1 = await extractTopics(text, setStatus, setStreamProgress, quantProfile);
+      const phase1 = await extractTopics(text, setStatus, setStreamProgress, quantProfile, promptTemplates);
       if (!phase1) {
         activeRef.current = false;
         return null;
@@ -107,6 +110,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
             ),
             setStatus,
             quantProfile,
+            promptTemplates,
           );
 
           refinementTimings = refinement.timings;

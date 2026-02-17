@@ -1,6 +1,24 @@
+export interface PromptProfileTemplates {
+  promptA?: string;
+  promptB?: string;
+  promptC?: string;
+  promptD?: string;
+  promptE?: string;
+}
+
+function renderTemplate(template: string, vars: Record<string, string>): string {
+  return Object.entries(vars).reduce(
+    (out, [key, value]) => out.replaceAll(`{{${key}}}`, value),
+    template,
+  );
+}
+
 // ── Prompt A: Topic Extraction + Hierarchy ──
 
-export function promptA_TopicHierarchy(text: string): string {
+export function promptA_TopicHierarchy(text: string, templates?: PromptProfileTemplates): string {
+  if (templates?.promptA) {
+    return renderTemplate(templates.promptA, { text });
+  }
   return `Analyze this brain dump and extract topics organized into a hierarchy.
 
 Text: "${text}"
@@ -33,7 +51,15 @@ export function promptB_NodeMatching(
   text: string,
   newTopics: { label: string; kind: string }[],
   existingNodes: { id: string; label: string; kind: string }[],
+  templates?: PromptProfileTemplates,
 ): string {
+  if (templates?.promptB) {
+    return renderTemplate(templates.promptB, {
+      text,
+      newTopicsJson: JSON.stringify(newTopics),
+      existingNodesJson: JSON.stringify(existingNodes),
+    });
+  }
   return `Given a brain dump, newly extracted topics, and existing graph nodes, decide:
 1) Does each new topic match an existing node? (similarity > 0.75 = match)
 2) Which parent umbrellas should each topic belong to?
@@ -73,7 +99,15 @@ Rules:
 export function promptC_Relationships(
   text: string,
   nodes: { id: string; label: string }[],
+  templates?: PromptProfileTemplates,
 ): string {
+  if (templates?.promptC) {
+    return renderTemplate(templates.promptC, {
+      text,
+      nodesJson: JSON.stringify(nodes),
+      maxRelationships: String(Math.min(nodes.length * 2, 15)),
+    });
+  }
   return `Identify relationships between these nodes based on the text.
 
 Text: "${text}"
@@ -106,7 +140,14 @@ Rules:
 export function promptD_Tasks(
   text: string,
   topics: string[],
+  templates?: PromptProfileTemplates,
 ): string {
+  if (templates?.promptD) {
+    return renderTemplate(templates.promptD, {
+      text,
+      topicsJson: JSON.stringify(topics),
+    });
+  }
   return `Extract actionable tasks or TODO items from this text.
 
 Text: "${text}"
@@ -135,7 +176,14 @@ Rules:
 export function promptE_Summary(
   segments: string[],
   topicLabel: string,
+  templates?: PromptProfileTemplates,
 ): string {
+  if (templates?.promptE) {
+    return renderTemplate(templates.promptE, {
+      topicLabel,
+      segments: segments.map((s, i) => `${i + 1}. "${s}"`).join('\n'),
+    });
+  }
   return `Summarize these text segments about "${topicLabel}" into 2-3 sentences.
 
 Segments:

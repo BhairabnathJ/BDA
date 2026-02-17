@@ -14,6 +14,18 @@ import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
 import { getAIBenchmarkQuantProfile, getAIQuantProfile } from '@/services/ai/aiClient';
 
+interface ActivePromptProfile {
+  profileId: string;
+  version: string;
+  templates?: {
+    promptA?: string;
+    promptB?: string;
+    promptC?: string;
+    promptD?: string;
+    promptE?: string;
+  };
+}
+
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [connections, setConnections] = useState<ConnectionData[]>([]);
@@ -37,7 +49,17 @@ function App() {
   const updateNodeMutation = useMutation(api.thoughts.updateNode);
   const deleteNodeMutation = useMutation(api.thoughts.deleteNode);
   const createAIRun = useMutation(api.aiRuns.createRun);
+  const anyApi = api as any;
+  const ensureDefaultPromptProfile = useMutation(anyApi.promptProfiles.ensureDefaultProfile as any) as (args: Record<string, never>) => Promise<unknown>;
+  const activePromptProfile = useQuery(anyApi.promptProfiles.getActiveProfile as any, {}) as ActivePromptProfile | null | undefined;
   const savedThoughts = useQuery(api.thoughts.list);
+
+  useEffect(() => {
+    if (activePromptProfile !== null) return;
+    ensureDefaultPromptProfile({}).catch((err: unknown) => {
+      console.error('[PromptProfiles] Failed to ensure default profile:', err);
+    });
+  }, [activePromptProfile, ensureDefaultPromptProfile]);
 
   // Refs to access latest state without re-creating graphCallbacks
   const nodesRef = useRef<NodeData[]>(nodes);
@@ -119,13 +141,15 @@ function App() {
 
   const handleSubmit = useCallback(async (text: string) => {
     const connectionsBefore = connectionsRef.current.length;
-    const result = await submit(text, 'apply', getAIQuantProfile());
+    const result = await submit(text, 'apply', getAIQuantProfile(), activePromptProfile?.templates);
     if (!result) return;
+    const activeProfileId = activePromptProfile ? `${activePromptProfile.profileId}@${activePromptProfile.version}` : undefined;
 
     // Log the AI run (fire-and-forget)
     logAIRun(createAIRun, {
       dumpText: result.rawText,
       mode: 'apply',
+      promptProfileId: activeProfileId,
       sessionId: runSessionIdRef.current,
       backend: result.backendUsed,
       model: result.modelUsed,
@@ -171,15 +195,17 @@ function App() {
     } catch (err) {
       console.error('[Convex] Failed to save thought:', err);
     }
-  }, [submit, createThought, addConnectionsMutation, createAIRun]);
+  }, [submit, activePromptProfile, createThought, addConnectionsMutation, createAIRun]);
 
   const handleBenchmark = useCallback(async (text: string, sessionId?: string) => {
-    const result = await submit(text, 'benchmark', getAIBenchmarkQuantProfile());
+    const result = await submit(text, 'benchmark', getAIBenchmarkQuantProfile(), activePromptProfile?.templates);
     if (!result) return;
+    const activeProfileId = activePromptProfile ? `${activePromptProfile.profileId}@${activePromptProfile.version}` : undefined;
 
     logAIRun(createAIRun, {
       dumpText: result.rawText,
       mode: 'benchmark',
+      promptProfileId: activeProfileId,
       sessionId: sessionId ?? runSessionIdRef.current,
       backend: result.backendUsed,
       model: result.modelUsed,
@@ -193,7 +219,7 @@ function App() {
       artifacts: result.artifacts,
       meta: result.meta,
     });
-  }, [submit, createAIRun]);
+  }, [submit, activePromptProfile, createAIRun]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>
