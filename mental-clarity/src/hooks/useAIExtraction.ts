@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
 import type { OllamaMetrics, StreamProgress } from '@/services/ai/aiClient';
-import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask } from '@/types/graph';
+import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask, AIRunArtifacts } from '@/types/graph';
 
 export interface AIRunResult {
   rawText: string;
@@ -12,6 +12,7 @@ export interface AIRunResult {
   aiStatus: 'success' | 'fallback' | 'error';
   errorMessage?: string;
   meta: AIRunMeta;
+  artifacts: AIRunArtifacts;
 }
 
 export interface GraphCallbacks {
@@ -69,6 +70,9 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
       setStreamProgress(null);
 
       let totalConnections = 0;
+      let generatedConnections: ConnectionData[] = [];
+      let generatedPages: PageData[] = [];
+      let generatedTasks: ExtractedTask[] = [];
       let refinementTimings = { matchingMs: 0, relationshipsMs: 0, tasksMs: 0 };
       let refinementPromptMetrics: { promptB?: OllamaMetrics; promptC?: OllamaMetrics; promptD?: OllamaMetrics } = {};
       const finalStatus = phase1.aiStatus;
@@ -98,13 +102,16 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
             callbacks.mergeNodes(refinement.merges);
           }
           if (refinement.connections.length > 0) {
+            generatedConnections = refinement.connections;
             callbacks.addConnections(refinement.connections);
             totalConnections = refinement.connections.length;
           }
           if (refinement.pages.length > 0) {
+            generatedPages = refinement.pages;
             callbacks.addPages(refinement.pages);
           }
           if (refinement.tasks.length > 0) {
+            generatedTasks = refinement.tasks;
             callbacks.addTasks(refinement.tasks);
           }
         } catch (err) {
@@ -139,6 +146,12 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
             promptC: refinementPromptMetrics.promptC ? toSummary(refinementPromptMetrics.promptC) : undefined,
             promptD: refinementPromptMetrics.promptD ? toSummary(refinementPromptMetrics.promptD) : undefined,
           },
+        },
+        artifacts: {
+          nodes: phase1.nodes,
+          connections: generatedConnections,
+          pages: generatedPages,
+          tasks: generatedTasks,
         },
       };
     } catch (err) {

@@ -174,3 +174,12 @@ export interface AIRunMeta {
     promptD?: PromptMetricsSummary;
   };
 }
+
+export type AIRunMode = 'apply' | 'benchmark';
+
+export interface AIRunArtifacts {
+  nodes: NodeData[];
+  connections: ConnectionData[];
+  tasks: ExtractedTask[];
+  pages?: PageData[];
+}

@@ -3,6 +3,7 @@ import { getModelName as getOllamaModelName, ollamaGenerate, ollamaHealthCheck }
 import type { OllamaResult, OnStreamProgress } from './types';
 
 type AIBackend = 'ollama' | 'mlx';
+type AIQuantProfile = 'q6' | 'q8' | 'q4-fallback';
 
 const backend = ((import.meta.env.VITE_AI_BACKEND ?? 'ollama').toLowerCase() === 'mlx'
   ? 'mlx'
@@ -65,6 +66,13 @@ export function getAIModelName(): string {
 
 export function getAIBackend(): AIBackend {
   return backend;
+}
+
+export function getAIQuantProfile(): AIQuantProfile {
+  const configured = (import.meta.env.VITE_AI_QUANT_DEFAULT ?? 'q6').toLowerCase();
+  if (configured === 'q8') return 'q8';
+  if (configured === 'q4-fallback') return 'q4-fallback';
+  return 'q6';
 }
 
 export type { OllamaMetrics, OnStreamProgress, StreamProgress } from './types';

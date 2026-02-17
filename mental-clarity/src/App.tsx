@@ -12,6 +12,7 @@ import type { ConnectionData, NodeData, PageData, DumpData, ExtractedTask } from
 import { useAIExtraction } from '@/hooks/useAIExtraction';
 import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
+import { getAIQuantProfile } from '@/services/ai/aiClient';
 
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
@@ -29,6 +30,7 @@ function App() {
   const [showDevDashboard, setShowDevDashboard] = useState(
     () => new URLSearchParams(window.location.search).get('dev') === '1',
   );
+  const runSessionIdRef = useRef(crypto.randomUUID());
 
   const createThought = useMutation(api.thoughts.create);
   const addConnectionsMutation = useMutation(api.thoughts.addConnections);
@@ -123,12 +125,16 @@ function App() {
     // Log the AI run (fire-and-forget)
     logAIRun(createAIRun, {
       dumpText: result.rawText,
+      mode: 'apply',
+      sessionId: runSessionIdRef.current,
+      quant: getAIQuantProfile(),
       startedAt: result.startedAt,
       finishedAt: result.finishedAt,
       nodeCount: result.nodeCount,
       connectionCount: result.connectionCount,
       aiStatus: result.aiStatus,
       errorMessage: result.errorMessage,
+      artifacts: result.artifacts,
       meta: result.meta,
     });
 
