@@ -16,6 +16,22 @@ import type {
 const VALID_KINDS: NodeKind[] = ['umbrella', 'subnode'];
 const VALID_CATEGORIES: NodeCategory[] = ['organic', 'technical', 'creative', 'learning', 'personal'];
 const VALID_CONN_TYPES: ConnectionType[] = ['related', 'causes', 'part-of', 'depends-on', 'similar', 'contrasts', 'direct', 'semantic'];
+const WEAK_UMBRELLA_LABELS = new Set(['stuff', 'things', 'other', 'misc', 'general', 'life']);
+const CATEGORY_UMBRELLA_FALLBACK: Record<NodeCategory, string> = {
+  technical: 'Technical Work',
+  learning: 'Learning',
+  personal: 'Personal',
+  organic: 'Health & Life',
+  creative: 'Creative',
+};
+
+function normalizeLabel(label: string): string {
+  return label.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeKey(label: string): string {
+  return normalizeLabel(label).toLowerCase();
+}
 
 // ── Prompt A parser ──
 
@@ -23,17 +39,78 @@ export function parseTopicResponse(raw: string): TopicExtractionResponse {
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed.topics)) throw new Error('Missing topics array');
 
-  const topics: ExtractedTopic[] = parsed.topics
+  const initialTopics: ExtractedTopic[] = parsed.topics
     .filter((t: Record<string, unknown>) => typeof t?.label === 'string' && (t.label as string).length > 0)
     .map((t: Record<string, unknown>) => ({
-      label: String(t.label).slice(0, 50),
+      label: normalizeLabel(String(t.label).slice(0, 50)),
       level: t.level === 1 ? 1 as const : 2 as const,
       kind: VALID_KINDS.includes(t.kind as NodeKind) ? (t.kind as NodeKind) : 'subnode' as const,
       category: VALID_CATEGORIES.includes(t.category as NodeCategory) ? (t.category as NodeCategory) : 'organic' as const,
       parentLabel: t.kind === 'subnode' && typeof t.parentLabel === 'string'
-        ? t.parentLabel as string : undefined,
+        ? normalizeLabel(String(t.parentLabel)) : undefined,
     }));
 
+  if (initialTopics.length === 0) throw new Error('No valid topics');
+
+  const umbrellas: ExtractedTopic[] = [];
+  const umbrellaKeySet = new Set<string>();
+
+  for (const topic of initialTopics) {
+    const labelKey = normalizeKey(topic.label);
+    const isUmbrella = topic.kind === 'umbrella' || topic.level === 1;
+    if (!isUmbrella) continue;
+    if (WEAK_UMBRELLA_LABELS.has(labelKey)) continue;
+    if (umbrellaKeySet.has(labelKey)) continue;
+
+    umbrellas.push({
+      label: topic.label,
+      level: 1,
+      kind: 'umbrella',
+      category: topic.category,
+    });
+    umbrellaKeySet.add(labelKey);
+  }
+
+  if (umbrellas.length === 0) {
+    const categoryOrder: NodeCategory[] = ['technical', 'learning', 'personal', 'organic', 'creative'];
+    for (const category of categoryOrder) {
+      if (!initialTopics.some((topic) => topic.category === category)) continue;
+      umbrellas.push({
+        label: CATEGORY_UMBRELLA_FALLBACK[category],
+        level: 1,
+        kind: 'umbrella',
+        category,
+      });
+    }
+  }
+
+  const umbrellaByKey = new Map(umbrellas.map((u) => [normalizeKey(u.label), u]));
+  const subnodes: ExtractedTopic[] = [];
+  const subnodeDedup = new Set<string>();
+
+  for (const topic of initialTopics) {
+    const isSubnode = topic.kind === 'subnode' || topic.level === 2;
+    if (!isSubnode) continue;
+
+    const explicitParent = topic.parentLabel ? umbrellaByKey.get(normalizeKey(topic.parentLabel)) : undefined;
+    const categoryParent = umbrellas.find((u) => u.category === topic.category);
+    const resolvedParent = explicitParent ?? categoryParent ?? umbrellas[0];
+    if (!resolvedParent) continue;
+
+    const dedupKey = `${normalizeKey(topic.label)}::${normalizeKey(resolvedParent.label)}`;
+    if (subnodeDedup.has(dedupKey)) continue;
+    subnodeDedup.add(dedupKey);
+
+    subnodes.push({
+      label: topic.label,
+      level: 2,
+      kind: 'subnode',
+      category: topic.category,
+      parentLabel: resolvedParent.label,
+    });
+  }
+
+  const topics = [...umbrellas.slice(0, 6), ...subnodes];
   if (topics.length === 0) throw new Error('No valid topics');
   return { topics };
 }

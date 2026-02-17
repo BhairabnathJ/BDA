@@ -37,12 +37,15 @@ Return ONLY this JSON structure:
 }
 
 Rules:
-- Extract 4–12 topics depending on text complexity
-- Level 1 = broad life areas (Work, School, Health, Money, Hobbies) → kind "umbrella"
-- Level 2 = specific themes under an umbrella → kind "subnode", must have parentLabel
+- Extract 5–14 topics depending on text complexity
+- Return 2–6 umbrella nodes max (kind="umbrella", level=1)
+- Level 1 umbrella = broad domains inferred from THIS text (not generic filler)
+- Level 2 subnodes = specific themes/actions under umbrella, must include parentLabel
 - Categories: "technical" (code/engineering), "learning" (school/study), "personal" (self/relationships), "organic" (health/lifestyle), "creative" (art/music/hobbies)
-- Every subnode must reference a valid umbrella parentLabel
-- No duplicates. No generics like "stuff" or "things"`;
+- Every subnode must reference a valid umbrella parentLabel from your own output
+- Avoid weak umbrella labels: "stuff", "things", "other", "misc", "general", "life"
+- Keep umbrellas stable and deduplicated (no near-synonym duplicates like "School" and "Academics")
+- Prefer concise umbrella labels (1-3 words) and concrete subnode labels (1-5 words)`;
 }
 
 // ── Prompt B: Node Matching + Multi-Parent ──
