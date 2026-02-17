@@ -43,6 +43,22 @@ export const updateNode = mutation({
   },
 });
 
+export const addConnections = mutation({
+  args: {
+    thoughtId: v.id("thoughts"),
+    connections: v.array(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const thought = await ctx.db.get(args.thoughtId);
+    if (!thought) throw new Error("Thought not found");
+
+    const existing = (thought.connections as Array<Record<string, unknown>>) ?? [];
+    await ctx.db.patch(args.thoughtId, {
+      connections: [...existing, ...args.connections],
+    });
+  },
+});
+
 export const deleteNode = mutation({
   args: {
     thoughtId: v.id("thoughts"),
