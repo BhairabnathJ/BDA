@@ -8,6 +8,8 @@ interface AIRunDoc {
   dumpText: string;
   sessionId?: string;
   mode?: string;
+  backend?: string;
+  quant?: string;
   model: string;
   promptVersion: string;
   startedAt: number;
@@ -223,15 +225,21 @@ export function AIRunsDashboard({
 }) {
   const rawRuns = useQuery(api.aiRuns.listRuns, { limit: 200 });
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [backendFilter, setBackendFilter] = useState<string>('all');
+  const [quantFilter, setQuantFilter] = useState<string>('all');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const runs = useMemo(() => {
     if (!rawRuns) return [];
     const typed = rawRuns as unknown as AIRunDoc[];
-    if (statusFilter === 'all') return typed;
-    return typed.filter((r) => r.aiStatus === statusFilter);
-  }, [rawRuns, statusFilter]);
+    return typed.filter((r) => {
+      if (statusFilter !== 'all' && r.aiStatus !== statusFilter) return false;
+      if (backendFilter !== 'all' && (r.backend ?? 'unknown') !== backendFilter) return false;
+      if (quantFilter !== 'all' && (r.quant ?? 'unknown') !== quantFilter) return false;
+      return true;
+    });
+  }, [rawRuns, statusFilter, backendFilter, quantFilter]);
 
   const handleExport = useCallback(() => {
     exportCSV(runs);
@@ -330,6 +338,45 @@ export function AIRunsDashboard({
             <option value="success">Success</option>
             <option value="fallback">Fallback</option>
             <option value="error">Error</option>
+          </select>
+
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 16 }}>Backend:</label>
+          <select
+            value={backendFilter}
+            onChange={(e) => setBackendFilter(e.target.value)}
+            style={{
+              border: '1px solid rgba(168,197,209,0.3)',
+              background: 'white',
+              padding: '4px 8px',
+              borderRadius: 4,
+              fontSize: 12,
+              fontFamily: 'inherit',
+            }}
+          >
+            <option value="all">All</option>
+            <option value="mlx">MLX</option>
+            <option value="ollama">Ollama</option>
+            <option value="unknown">Unknown</option>
+          </select>
+
+          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 16 }}>Quant:</label>
+          <select
+            value={quantFilter}
+            onChange={(e) => setQuantFilter(e.target.value)}
+            style={{
+              border: '1px solid rgba(168,197,209,0.3)',
+              background: 'white',
+              padding: '4px 8px',
+              borderRadius: 4,
+              fontSize: 12,
+              fontFamily: 'inherit',
+            }}
+          >
+            <option value="all">All</option>
+            <option value="q8">q8</option>
+            <option value="q6">q6</option>
+            <option value="q4-fallback">q4-fallback</option>
+            <option value="unknown">Unknown</option>
           </select>
 
           <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 16 }}>Chart:</label>
@@ -460,6 +507,9 @@ export function AIRunsDashboard({
                                 Error: {run.errorMessage}
                               </div>
                             )}
+                            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-disabled)' }}>
+                              Backend: {run.backend ?? 'unknown'} · Quant: {run.quant ?? 'unknown'}
+                            </div>
                             {onRerunBenchmark && (
                               <div style={{ marginTop: 10 }}>
                                 <button
