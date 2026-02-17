@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ai:mlx:serve": "python3 mlx_server/server.py"
   },
   "dependencies": {
     "@tiptap/extension-bubble-menu": "^3.19.0",

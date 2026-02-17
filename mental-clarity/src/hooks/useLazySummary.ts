@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ollamaGenerate, ollamaHealthCheck } from '@/services/ai/ollamaClient';
+import { aiGenerate, aiHealthCheck } from '@/services/ai/aiClient';
 import { promptE_Summary } from '@/services/ai/prompts';
 import type { PageData } from '@/types/graph';
 
@@ -28,10 +28,10 @@ export function useLazySummary(
 
     setIsGenerating(true);
     try {
-      const healthy = await ollamaHealthCheck();
+      const healthy = await aiHealthCheck();
       if (!healthy) return;
 
-      const { text: raw } = await ollamaGenerate(promptE_Summary(allSegments, nodeLabel));
+      const { text: raw } = await aiGenerate(promptE_Summary(allSegments, nodeLabel));
       const parsed = JSON.parse(raw);
       const text = typeof parsed.summary === 'string' ? parsed.summary : null;
 

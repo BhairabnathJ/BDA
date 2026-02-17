@@ -2,6 +2,31 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## AI Backend Selection
+
+The app supports two local inference backends selected by environment variable:
+
+- `VITE_AI_BACKEND=ollama` (default)
+- `VITE_AI_BACKEND=mlx`
+
+When using MLX:
+
+1. Start the MLX sidecar:
+
+```bash
+npm run ai:mlx:serve
+```
+
+2. Set env values (see `.env.local.example`):
+
+```bash
+VITE_AI_BACKEND=mlx
+VITE_MLX_BASE_URL=http://127.0.0.1:8800
+VITE_MLX_MODEL=mlx-community/Qwen2.5-14B-Instruct-4bit
+```
+
+Additional MLX setup docs live in `mlx_server/README.md`.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh

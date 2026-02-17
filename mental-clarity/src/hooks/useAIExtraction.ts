@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
-import type { OllamaMetrics, StreamProgress } from '@/services/ai/ollamaClient';
+import type { OllamaMetrics, StreamProgress } from '@/services/ai/aiClient';
 import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask } from '@/types/graph';
 
 export interface AIRunResult {

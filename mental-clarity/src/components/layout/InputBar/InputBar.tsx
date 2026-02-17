@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { AIServiceStatus } from '@/types/graph';
-import type { StreamProgress } from '@/services/ai/ollamaClient';
+import type { StreamProgress } from '@/services/ai/aiClient';
 import { cn } from '@/utils/cn';
 import { WaveformIcon } from './WaveformIcon';
 import styles from './InputBar.module.css';
