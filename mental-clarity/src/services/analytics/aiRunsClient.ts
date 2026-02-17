@@ -52,34 +52,38 @@ type CreateRunMutation = (args: {
   meta?: Record<string, unknown>;
 }) => Promise<unknown>;
 
-export function logAIRun(
+export async function logAIRun(
   createRunMutation: CreateRunMutation,
   args: LogAIRunArgs,
-): void {
+): Promise<string | undefined> {
   const inputHash = args.inputHash ?? hashInput(args.dumpText);
   const backend = args.backend ?? getAIBackend();
   const model = args.model ?? getAIModelName();
 
-  createRunMutation({
-    dumpText: args.dumpText,
-    model,
-    promptVersion: PROMPT_VERSION,
-    promptProfileId: args.promptProfileId ?? DEFAULT_PROMPT_PROFILE_ID,
-    inputHash,
-    sessionId: args.sessionId,
-    mode: args.mode,
-    backend,
-    quant: args.quant,
-    startedAt: args.startedAt,
-    finishedAt: args.finishedAt,
-    nodeCount: args.nodeCount,
-    connectionCount: args.connectionCount,
-    aiStatus: args.aiStatus,
-    errorMessage: args.errorMessage,
-    artifacts: args.artifacts as unknown as Record<string, unknown>,
-    quality: args.quality,
-    meta: args.meta as unknown as Record<string, unknown>,
-  }).catch((err) => {
+  try {
+    const runId = await createRunMutation({
+      dumpText: args.dumpText,
+      model,
+      promptVersion: PROMPT_VERSION,
+      promptProfileId: args.promptProfileId ?? DEFAULT_PROMPT_PROFILE_ID,
+      inputHash,
+      sessionId: args.sessionId,
+      mode: args.mode,
+      backend,
+      quant: args.quant,
+      startedAt: args.startedAt,
+      finishedAt: args.finishedAt,
+      nodeCount: args.nodeCount,
+      connectionCount: args.connectionCount,
+      aiStatus: args.aiStatus,
+      errorMessage: args.errorMessage,
+      artifacts: args.artifacts as unknown as Record<string, unknown>,
+      quality: args.quality,
+      meta: args.meta as unknown as Record<string, unknown>,
+    });
+    return String(runId);
+  } catch (err) {
     console.warn('[Analytics] Failed to log AI run:', err);
-  });
+    return undefined;
+  }
 }

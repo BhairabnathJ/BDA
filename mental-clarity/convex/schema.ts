@@ -6,8 +6,35 @@ export default defineSchema({
     text: v.string(),
     nodes: v.array(v.any()),
     connections: v.array(v.any()),
+    runId: v.optional(v.id("ai_runs")),
+    inputHash: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    mode: v.optional(v.string()),
+    backend: v.optional(v.string()),
+    quant: v.optional(v.string()),
+    promptProfileId: v.optional(v.string()),
+    quality: v.optional(
+      v.object({
+        score: v.optional(v.number()),
+        note: v.optional(v.string()),
+      }),
+    ),
+    connectionReviews: v.optional(
+      v.array(
+        v.object({
+          connectionKey: v.string(),
+          sourceLabel: v.string(),
+          targetLabel: v.string(),
+          type: v.string(),
+          label: v.string(),
+          verdict: v.union(v.literal("accept"), v.literal("reject")),
+          reviewer: v.optional(v.string()),
+          updatedAt: v.number(),
+        }),
+      ),
+    ),
     createdAt: v.number(),
-  }),
+  }).index("by_run", ["runId"]),
   ai_runs: defineTable({
     dumpText: v.string(),
     model: v.string(),

@@ -12,6 +12,7 @@ import type { ConnectionData, NodeData, PageData, DumpData, ExtractedTask } from
 import { useAIExtraction } from '@/hooks/useAIExtraction';
 import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
+import { hashInput } from '@/services/analytics/runHash';
 import { getAIBenchmarkQuantProfile, getAIQuantProfile } from '@/services/ai/aiClient';
 
 interface ActivePromptProfile {
@@ -144,12 +145,14 @@ function App() {
     const result = await submit(text, 'apply', getAIQuantProfile(), activePromptProfile?.templates);
     if (!result) return;
     const activeProfileId = activePromptProfile ? `${activePromptProfile.profileId}@${activePromptProfile.version}` : undefined;
+    const inputHash = hashInput(result.rawText);
 
-    // Log the AI run (fire-and-forget)
-    logAIRun(createAIRun, {
+    // Log the AI run and keep runId so thought rows can reference prompt profiles/reviews.
+    const runId = await logAIRun(createAIRun, {
       dumpText: result.rawText,
       mode: 'apply',
       promptProfileId: activeProfileId,
+      inputHash,
       sessionId: runSessionIdRef.current,
       backend: result.backendUsed,
       model: result.modelUsed,
@@ -162,6 +165,10 @@ function App() {
       errorMessage: result.errorMessage,
       artifacts: result.artifacts,
       meta: result.meta,
+      quality: {
+        score: undefined,
+        note: undefined,
+      },
     });
 
     // Persist to Convex
@@ -171,6 +178,18 @@ function App() {
         text: result.rawText,
         nodes: newNodes,
         connections: [],
+        runId: runId as never,
+        inputHash,
+        sessionId: runSessionIdRef.current,
+        mode: 'apply',
+        backend: result.backendUsed,
+        quant: result.quantUsed,
+        promptProfileId: activeProfileId,
+        quality: {
+          score: undefined,
+          note: undefined,
+        },
+        connectionReviews: [],
         createdAt: Date.now(),
       });
       const thoughtIdStr = thoughtId as string;
@@ -201,11 +220,13 @@ function App() {
     const result = await submit(text, 'benchmark', getAIBenchmarkQuantProfile(), activePromptProfile?.templates);
     if (!result) return;
     const activeProfileId = activePromptProfile ? `${activePromptProfile.profileId}@${activePromptProfile.version}` : undefined;
+    const inputHash = hashInput(result.rawText);
 
-    logAIRun(createAIRun, {
+    await logAIRun(createAIRun, {
       dumpText: result.rawText,
       mode: 'benchmark',
       promptProfileId: activeProfileId,
+      inputHash,
       sessionId: sessionId ?? runSessionIdRef.current,
       backend: result.backendUsed,
       model: result.modelUsed,
@@ -218,6 +239,10 @@ function App() {
       errorMessage: result.errorMessage,
       artifacts: result.artifacts,
       meta: result.meta,
+      quality: {
+        score: undefined,
+        note: undefined,
+      },
     });
   }, [submit, activePromptProfile, createAIRun]);
 

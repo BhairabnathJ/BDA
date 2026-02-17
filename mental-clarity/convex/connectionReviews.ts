@@ -20,6 +20,17 @@ export const upsertReview = mutation({
       )
       .first();
 
+    const reviewPatch = {
+      connectionKey: args.connectionKey,
+      sourceLabel: args.sourceLabel,
+      targetLabel: args.targetLabel,
+      type: args.type,
+      label: args.label,
+      verdict: args.verdict,
+      reviewer: args.reviewer,
+      updatedAt: Date.now(),
+    };
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         sourceLabel: args.sourceLabel,
@@ -30,10 +41,23 @@ export const upsertReview = mutation({
         reviewer: args.reviewer,
         createdAt: Date.now(),
       });
+      const thought = await ctx.db
+        .query("thoughts")
+        .withIndex("by_run", (q) => q.eq("runId", args.runId))
+        .first();
+      if (thought) {
+        const current = (thought.connectionReviews as Array<typeof reviewPatch>) ?? [];
+        const idx = current.findIndex((r) => r.connectionKey === args.connectionKey);
+        const next =
+          idx >= 0
+            ? current.map((r, i) => (i === idx ? reviewPatch : r))
+            : [...current, reviewPatch];
+        await ctx.db.patch(thought._id, { connectionReviews: next });
+      }
       return existing._id;
     }
 
-    return await ctx.db.insert("connection_reviews", {
+    const reviewId = await ctx.db.insert("connection_reviews", {
       runId: args.runId,
       connectionKey: args.connectionKey,
       sourceLabel: args.sourceLabel,
@@ -44,6 +68,17 @@ export const upsertReview = mutation({
       reviewer: args.reviewer,
       createdAt: Date.now(),
     });
+
+    const thought = await ctx.db
+      .query("thoughts")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .first();
+    if (thought) {
+      const current = (thought.connectionReviews as Array<typeof reviewPatch>) ?? [];
+      await ctx.db.patch(thought._id, { connectionReviews: [...current, reviewPatch] });
+    }
+
+    return reviewId;
   },
 });
 

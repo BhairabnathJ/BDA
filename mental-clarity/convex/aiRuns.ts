@@ -101,5 +101,18 @@ export const setRunQuality = mutation({
         note: args.note,
       },
     });
+
+    const thought = await ctx.db
+      .query("thoughts")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .first();
+    if (thought) {
+      await ctx.db.patch(thought._id, {
+        quality: {
+          score: args.score,
+          note: args.note,
+        },
+      });
+    }
   },
 });
