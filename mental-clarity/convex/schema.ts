@@ -34,4 +34,17 @@ export default defineSchema({
       }),
     ),
   }),
+  connection_reviews: defineTable({
+    runId: v.id("ai_runs"),
+    connectionKey: v.string(),
+    sourceLabel: v.string(),
+    targetLabel: v.string(),
+    type: v.string(),
+    label: v.string(),
+    verdict: v.union(v.literal("accept"), v.literal("reject")),
+    createdAt: v.number(),
+    reviewer: v.optional(v.string()),
+  })
+    .index("by_run", ["runId"])
+    .index("by_run_key", ["runId", "connectionKey"]),
 });
