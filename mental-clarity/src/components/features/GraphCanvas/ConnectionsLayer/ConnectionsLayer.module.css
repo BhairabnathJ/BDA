@@ -9,7 +9,7 @@
 }
 
 .connectionLine {
-  stroke: var(--color-primary-dark);
+  stroke: var(--color-text-secondary);
   stroke-linecap: round;
   pointer-events: none;
   transition: opacity var(--duration-fast) var(--ease-smooth);
