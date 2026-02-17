@@ -24,6 +24,7 @@ interface AIRunDoc {
   mode?: string;
   backend?: string;
   quant?: string;
+  promptProfileId?: string;
   quality?: {
     score?: number;
     note?: string;
@@ -49,6 +50,20 @@ interface ConnectionReviewDoc {
   runId: string;
   connectionKey: string;
   verdict: 'accept' | 'reject';
+}
+
+interface PromptProfileDoc {
+  _id: string;
+  profileId: string;
+  version: string;
+  templates?: {
+    promptA?: string;
+    promptB?: string;
+    promptC?: string;
+    promptD?: string;
+    promptE?: string;
+  };
+  isActive: boolean;
 }
 
 function toConnectionKey(c: RunArtifactConnection): string {
@@ -296,8 +311,13 @@ export function AIRunsDashboard({
   const [baselineId, setBaselineId] = useState<string>('latest');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [newProfileId, setNewProfileId] = useState<string>('experiment/topics');
+  const [newProfileVersion, setNewProfileVersion] = useState<string>('v2');
   const upsertConnectionReview = useMutation(anyApi.connectionReviews.upsertReview as any) as (args: any) => Promise<unknown>;
   const setRunQuality = useMutation(anyApi.aiRuns.setRunQuality as any) as (args: any) => Promise<unknown>;
+  const setActivePromptProfile = useMutation(anyApi.promptProfiles.setActiveProfile as any) as (args: any) => Promise<unknown>;
+  const upsertPromptProfile = useMutation(anyApi.promptProfiles.upsertProfile as any) as (args: any) => Promise<unknown>;
+  const promptProfiles = useQuery(anyApi.promptProfiles.listProfiles as any, {}) as PromptProfileDoc[] | undefined;
 
   const allRuns = useMemo(() => {
     if (!rawRuns) return [];
@@ -386,6 +406,30 @@ export function AIRunsDashboard({
     () => [...runs].slice(0, 40).sort((a, b) => a.finishedAt - b.finishedAt),
     [runs],
   );
+
+  const runStatsByProfile = useMemo(() => {
+    const stats = new Map<string, { count: number; avgDuration: number; avgQuality: number }>();
+    const accum = new Map<string, { count: number; duration: number; qualitySum: number; qualityCount: number }>();
+    for (const run of allRuns) {
+      const profileKey = run.promptProfileId ?? 'default/topics_v1';
+      const current = accum.get(profileKey) ?? { count: 0, duration: 0, qualitySum: 0, qualityCount: 0 };
+      current.count += 1;
+      current.duration += run.durationMs;
+      if (typeof run.quality?.score === 'number') {
+        current.qualitySum += run.quality.score;
+        current.qualityCount += 1;
+      }
+      accum.set(profileKey, current);
+    }
+    for (const [key, value] of accum.entries()) {
+      stats.set(key, {
+        count: value.count,
+        avgDuration: value.duration / Math.max(value.count, 1),
+        avgQuality: value.qualitySum / Math.max(value.qualityCount, 1),
+      });
+    }
+    return stats;
+  }, [allRuns]);
 
   const handleExport = useCallback(() => {
     exportCSV(runs);
@@ -688,6 +732,121 @@ export function AIRunsDashboard({
             </span>
           </div>
         )}
+
+        <div
+          style={{
+            marginBottom: 16,
+            border: '1px solid rgba(168,197,209,0.12)',
+            borderRadius: 8,
+            padding: '10px 12px',
+            background: 'rgba(168,197,209,0.04)',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--color-text-secondary)' }}>
+            Prompt Profiles (experiment loop)
+          </div>
+          <div style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
+            {(promptProfiles ?? []).map((profile) => {
+              const profileKey = `${profile.profileId}@${profile.version}`;
+              const stats = runStatsByProfile.get(profileKey);
+              return (
+                <div
+                  key={profile._id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: 'rgba(255,255,255,0.45)',
+                    border: '1px solid rgba(168,197,209,0.12)',
+                    borderRadius: 6,
+                    padding: '6px 8px',
+                  }}
+                >
+                  <div style={{ fontSize: 11 }}>
+                    <span style={{ fontWeight: 600 }}>{profileKey}</span>
+                    {profile.isActive && (
+                      <span style={{ marginLeft: 8, color: 'var(--color-success)', fontWeight: 600 }}>
+                        ACTIVE
+                      </span>
+                    )}
+                    <span style={{ marginLeft: 10, color: 'var(--color-text-disabled)' }}>
+                      runs: {stats?.count ?? 0} · avg latency: {stats ? `${Math.round(stats.avgDuration)}ms` : '-'} · avg quality: {stats ? stats.avgQuality.toFixed(2) : '-'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActivePromptProfile({ profileId: profile.profileId }).catch((err: unknown) =>
+                        console.error('[PromptProfiles] Failed to set active profile:', err),
+                      );
+                    }}
+                    style={{
+                      border: '1px solid rgba(168,197,209,0.25)',
+                      background: profile.isActive ? 'rgba(127,184,159,0.22)' : 'rgba(168,197,209,0.1)',
+                      borderRadius: 6,
+                      padding: '3px 9px',
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {profile.isActive ? 'Selected' : 'Set Active'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              value={newProfileId}
+              onChange={(e) => setNewProfileId(e.target.value)}
+              placeholder="profile id"
+              style={{
+                border: '1px solid rgba(168,197,209,0.28)',
+                borderRadius: 6,
+                padding: '4px 8px',
+                fontSize: 11,
+                minWidth: 160,
+              }}
+            />
+            <input
+              value={newProfileVersion}
+              onChange={(e) => setNewProfileVersion(e.target.value)}
+              placeholder="version"
+              style={{
+                border: '1px solid rgba(168,197,209,0.28)',
+                borderRadius: 6,
+                padding: '4px 8px',
+                fontSize: 11,
+                width: 90,
+              }}
+            />
+            <button
+              onClick={() => {
+                const active = (promptProfiles ?? []).find((p) => p.isActive);
+                upsertPromptProfile({
+                  profileId: newProfileId.trim() || 'experiment/topics',
+                  version: newProfileVersion.trim() || 'v2',
+                  templates: active?.templates ?? {},
+                  makeActive: false,
+                }).catch((err: unknown) =>
+                  console.error('[PromptProfiles] Failed to create profile:', err),
+                );
+              }}
+              style={{
+                border: '1px solid rgba(168,197,209,0.25)',
+                background: 'rgba(168,197,209,0.12)',
+                borderRadius: 6,
+                padding: '4px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Create Variant
+            </button>
+          </div>
+        </div>
 
         {/* Charts */}
         <MultiLineChart

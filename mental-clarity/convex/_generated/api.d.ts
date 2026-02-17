@@ -10,6 +10,7 @@
 
 import type * as aiRuns from "../aiRuns.js";
 import type * as connectionReviews from "../connectionReviews.js";
+import type * as promptProfiles from "../promptProfiles.js";
 import type * as thoughts from "../thoughts.js";
 
 import type {
@@ -21,6 +22,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   aiRuns: typeof aiRuns;
   connectionReviews: typeof connectionReviews;
+  promptProfiles: typeof promptProfiles;
   thoughts: typeof thoughts;
 }>;
 
