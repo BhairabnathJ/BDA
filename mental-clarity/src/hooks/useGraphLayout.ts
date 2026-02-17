@@ -39,11 +39,11 @@ interface LayoutResponse {
 
 const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
   nodeRadius: 40,
-  repulsionStrength: 300,
+  repulsionStrength: 420,
   attractionStrength: 0.1,
   centerGravity: 0.05,
   iterations: 300,
-  initialSpread: 800,
+  initialSpread: 1000,
 };
 
 interface UseGraphLayoutParams {
@@ -103,7 +103,7 @@ export function useGraphLayout({
   onNodeMove,
   enabled = true,
   lockPositions = false,
-  repulsionStrength = 300,
+  repulsionStrength = 420,
   canvasWidth,
   canvasHeight,
 }: UseGraphLayoutParams) {
@@ -159,6 +159,7 @@ export function useGraphLayout({
       for (const position of positions) {
         if (position.id === draggingIdRef.current) continue;
         if (pinnedIdsRef.current.has(position.id)) continue;
+        if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) continue;
         onNodeMoveRef.current(position.id, position.x, position.y);
       }
     };
@@ -197,8 +198,8 @@ export function useGraphLayout({
       movableNodeIds,
       nodes: nodesRef.current.map((node) => ({
         id: node.id,
-        x: node.x,
-        y: node.y,
+        x: Number.isFinite(node.x) ? node.x : canvasWidth * 0.5,
+        y: Number.isFinite(node.y) ? node.y : canvasHeight * 0.5,
         category: node.category,
         pinned: pinnedIdsRef.current.has(node.id),
       })),
@@ -297,9 +298,11 @@ export function useGraphLayout({
       for (const nodeId of newNodeIds) {
         const node = currentNodes.find((candidate) => candidate.id === nodeId);
         if (!node || pinnedIdsRef.current.has(nodeId)) continue;
+        const baseX = Number.isFinite(node.x) ? node.x : canvasWidth * 0.5;
+        const baseY = Number.isFinite(node.y) ? node.y : canvasHeight * 0.5;
         const jitterX = (Math.random() - 0.5) * 60;
         const jitterY = (Math.random() - 0.5) * 60;
-        onNodeMoveRef.current(nodeId, node.x + jitterX, node.y + jitterY);
+        onNodeMoveRef.current(nodeId, baseX + jitterX, baseY + jitterY);
       }
     }
 

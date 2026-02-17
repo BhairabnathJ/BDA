@@ -15,7 +15,7 @@ const DOUBLE_CLICK_MS = 400;
 const DRAG_HOLD_MS = 200;
 const MOMENTUM_FRICTION = 0.92;
 const MOMENTUM_MIN_VELOCITY = 0.5;
-const DEFAULT_SPREAD = 300;
+const DEFAULT_SPREAD = 420;
 
 interface GraphCanvasProps {
   nodes: NodeData[];

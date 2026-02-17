@@ -44,6 +44,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function hashFloat(seed: string, salt = 0): number {
   let hash = 2166136261 ^ salt;
   for (let index = 0; index < seed.length; index++) {
@@ -113,16 +117,19 @@ function initializePositions(
 
   for (let i = 0; i < req.nodes.length; i++) {
     const node = req.nodes[i];
+    const fallbackAnchor = categoryAnchor(node.category, req.width, req.height);
+    const safeX = finiteOr(node.x, fallbackAnchor.x);
+    const safeY = finiteOr(node.y, fallbackAnchor.y);
 
     if (!canMove[i]) {
-      xs[i] = node.x;
-      ys[i] = node.y;
+      xs[i] = safeX;
+      ys[i] = safeY;
       continue;
     }
 
     if (!shouldSeed(node, i)) {
-      xs[i] = node.x;
-      ys[i] = node.y;
+      xs[i] = safeX;
+      ys[i] = safeY;
       continue;
     }
 
@@ -161,6 +168,8 @@ function initializePositions(
 function runLayout(req: LayoutRequest): LayoutResponse {
   const width = Math.max(req.width, 500);
   const height = Math.max(req.height, 400);
+  const centerX = width * 0.5;
+  const centerY = height * 0.5;
   const config = req.config;
 
   const ids = req.nodes.map((node) => node.id);
@@ -200,6 +209,11 @@ function runLayout(req: LayoutRequest): LayoutResponse {
   initializePositions(req, degree, neighbors, ids, canMove, xs, ys);
 
   const minPadding = config.nodeRadius + 18;
+  const spreadOverflow = Math.max(config.initialSpread * 0.65, 320);
+  const minX = centerX - width * 0.5 - spreadOverflow;
+  const maxX = centerX + width * 0.5 + spreadOverflow;
+  const minY = centerY - height * 0.5 - spreadOverflow;
+  const maxY = centerY + height * 0.5 + spreadOverflow;
   const cellSize = Math.max(config.nodeRadius * 3, 110);
   const damping = 0.86;
 
@@ -242,7 +256,7 @@ function runLayout(req: LayoutRequest): LayoutResponse {
       const dx = xs[targetIndex] - xs[sourceIndex];
       const dy = ys[targetIndex] - ys[sourceIndex];
       const distance = Math.sqrt(dx * dx + dy * dy) || 0.001;
-      const strength = clamp(edge.strength ?? 0.7, 0.1, 1);
+      const strength = clamp(finiteOr(edge.strength ?? 0.7, 0.7), 0.1, 1);
       const targetDistance = config.nodeRadius * 2 + (1 - strength) * 150;
       const pull = (distance - targetDistance) * config.attractionStrength * (0.65 + strength) * 0.02;
       const forceX = (dx / distance) * pull;
@@ -313,14 +327,18 @@ function runLayout(req: LayoutRequest): LayoutResponse {
 
     for (let i = 0; i < nodeCount; i++) {
       if (!canMove[i]) continue;
-      xs[i] = clamp(xs[i], minPadding, width - minPadding);
-      ys[i] = clamp(ys[i], minPadding, height - minPadding);
+      xs[i] = clamp(xs[i], minX + minPadding, maxX - minPadding);
+      ys[i] = clamp(ys[i], minY + minPadding, maxY - minPadding);
     }
   }
 
   return {
     requestId: req.requestId,
-    positions: ids.map((id, index) => ({ id, x: xs[index], y: ys[index] })),
+    positions: ids.map((id, index) => ({
+      id,
+      x: finiteOr(xs[index], centerX),
+      y: finiteOr(ys[index], centerY),
+    })),
   };
 }
 

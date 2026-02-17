@@ -46,6 +46,8 @@ export function Node({
 }: NodeProps) {
   const size = useMemo(() => computeSize(label, kind), [label, kind]);
   const isMultiParent = (parentIds?.length ?? 0) > 1;
+  const safeX = Number.isFinite(x) ? x : 0;
+  const safeY = Number.isFinite(y) ? y : 0;
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -69,8 +71,8 @@ export function Node({
       style={{
         width: size,
         height: size,
-        left: x - size / 2,
-        top: y - size / 2,
+        left: safeX - size / 2,
+        top: safeY - size / 2,
       }}
       onMouseDown={handleMouseDown}
     >
