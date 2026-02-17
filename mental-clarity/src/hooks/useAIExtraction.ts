@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
 import type { OllamaMetrics, StreamProgress } from '@/services/ai/aiClient';
-import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask, AIRunArtifacts } from '@/types/graph';
+import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask, AIRunArtifacts, AIRunMode } from '@/types/graph';
 
 export interface AIRunResult {
   rawText: string;
@@ -27,7 +27,7 @@ export interface GraphCallbacks {
 }
 
 interface UseAIExtractionReturn {
-  submit: (text: string) => Promise<AIRunResult | null>;
+  submit: (text: string, mode?: AIRunMode) => Promise<AIRunResult | null>;
   status: AIServiceStatus;
   isProcessing: boolean;
   /** Live streaming progress (tokens, tokens/sec, elapsed) */
@@ -50,7 +50,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
   const [streamProgress, setStreamProgress] = useState<StreamProgress | null>(null);
   const activeRef = useRef(false);
 
-  const submit = useCallback(async (text: string): Promise<AIRunResult | null> => {
+  const submit = useCallback(async (text: string, mode: AIRunMode = 'apply'): Promise<AIRunResult | null> => {
     if (activeRef.current) return null;
     activeRef.current = true;
     const startedAt = Date.now();
@@ -65,8 +65,10 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
       }
 
       // Immediately render nodes on canvas
-      callbacks.addNodes(phase1.nodes);
-      callbacks.addDump(phase1.dump);
+      if (mode === 'apply') {
+        callbacks.addNodes(phase1.nodes);
+        callbacks.addDump(phase1.dump);
+      }
       setStreamProgress(null);
 
       let totalConnections = 0;
@@ -95,24 +97,30 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
           refinementTimings = refinement.timings;
           refinementPromptMetrics = refinement.promptMetrics;
 
-          if (refinement.nodeUpdates.size > 0) {
+          if (mode === 'apply' && refinement.nodeUpdates.size > 0) {
             callbacks.updateNodes(refinement.nodeUpdates);
           }
-          if (refinement.merges.size > 0) {
+          if (mode === 'apply' && refinement.merges.size > 0) {
             callbacks.mergeNodes(refinement.merges);
           }
           if (refinement.connections.length > 0) {
             generatedConnections = refinement.connections;
-            callbacks.addConnections(refinement.connections);
+            if (mode === 'apply') {
+              callbacks.addConnections(refinement.connections);
+            }
             totalConnections = refinement.connections.length;
           }
           if (refinement.pages.length > 0) {
             generatedPages = refinement.pages;
-            callbacks.addPages(refinement.pages);
+            if (mode === 'apply') {
+              callbacks.addPages(refinement.pages);
+            }
           }
           if (refinement.tasks.length > 0) {
             generatedTasks = refinement.tasks;
-            callbacks.addTasks(refinement.tasks);
+            if (mode === 'apply') {
+              callbacks.addTasks(refinement.tasks);
+            }
           }
         } catch (err) {
           console.warn('[AI] Phase 2 failed (Phase 1 nodes still visible):', err);

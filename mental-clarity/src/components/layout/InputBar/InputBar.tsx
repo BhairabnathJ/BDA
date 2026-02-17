@@ -7,6 +7,7 @@ import styles from './InputBar.module.css';
 
 interface InputBarProps {
   onSubmit: (text: string) => void | Promise<void>;
+  onBenchmark?: (text: string) => void | Promise<void>;
   isProcessing?: boolean;
   aiStatus?: AIServiceStatus;
   streamProgress?: StreamProgress | null;
@@ -25,7 +26,7 @@ function statusMessage(status?: AIServiceStatus): string {
   }
 }
 
-export function InputBar({ onSubmit, isProcessing = false, aiStatus, streamProgress }: InputBarProps) {
+export function InputBar({ onSubmit, onBenchmark, isProcessing = false, aiStatus, streamProgress }: InputBarProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +37,13 @@ export function InputBar({ onSubmit, isProcessing = false, aiStatus, streamProgr
     onSubmit(trimmed);
     setValue('');
   }, [value, onSubmit, isProcessing]);
+
+  const handleBenchmark = useCallback(() => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (isProcessing) return;
+    onBenchmark?.(trimmed);
+  }, [value, onBenchmark, isProcessing]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -92,9 +100,14 @@ export function InputBar({ onSubmit, isProcessing = false, aiStatus, streamProgr
         </div>
       )}
       {!isProcessing && value.trim() && (
-        <button className={styles.sendButton} onClick={handleSubmit}>
-          <span className={styles.sendIcon}>{'\u2191'}</span>
-        </button>
+        <>
+          <button className={styles.benchmarkButton} onClick={handleBenchmark} title="Run benchmark (no graph changes)">
+            Bench
+          </button>
+          <button className={styles.sendButton} onClick={handleSubmit} title="Apply to graph">
+            <span className={styles.sendIcon}>{'\u2191'}</span>
+          </button>
+        </>
       )}
       {!isProcessing && (
         <button className={styles.voiceButton}>

@@ -119,7 +119,7 @@ function App() {
 
   const handleSubmit = useCallback(async (text: string) => {
     const connectionsBefore = connectionsRef.current.length;
-    const result = await submit(text);
+    const result = await submit(text, 'apply');
     if (!result) return;
 
     // Log the AI run (fire-and-forget)
@@ -170,6 +170,26 @@ function App() {
       console.error('[Convex] Failed to save thought:', err);
     }
   }, [submit, createThought, addConnectionsMutation, createAIRun]);
+
+  const handleBenchmark = useCallback(async (text: string, sessionId?: string) => {
+    const result = await submit(text, 'benchmark');
+    if (!result) return;
+
+    logAIRun(createAIRun, {
+      dumpText: result.rawText,
+      mode: 'benchmark',
+      sessionId: sessionId ?? runSessionIdRef.current,
+      quant: getAIQuantProfile(),
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      nodeCount: result.nodeCount,
+      connectionCount: result.connectionCount,
+      aiStatus: result.aiStatus,
+      errorMessage: result.errorMessage,
+      artifacts: result.artifacts,
+      meta: result.meta,
+    });
+  }, [submit, createAIRun]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>
@@ -323,6 +343,7 @@ function App() {
       />
       <InputBar
         onSubmit={handleSubmit}
+        onBenchmark={handleBenchmark}
         isProcessing={isProcessing}
         aiStatus={status}
         streamProgress={streamProgress}
@@ -362,7 +383,10 @@ function App() {
         />
       )}
       {showDevDashboard && (
-        <AIRunsDashboard onClose={() => setShowDevDashboard(false)} />
+        <AIRunsDashboard
+          onClose={() => setShowDevDashboard(false)}
+          onRerunBenchmark={handleBenchmark}
+        />
       )}
     </>
   );
