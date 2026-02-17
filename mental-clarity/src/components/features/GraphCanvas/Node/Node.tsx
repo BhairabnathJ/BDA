@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { cn } from '@/utils/cn';
 import type { NodeKind } from '@/types/graph';
+import { computeNodeSize } from './sizing';
 import styles from './Node.module.css';
 
 interface NodeProps {
@@ -17,20 +18,6 @@ interface NodeProps {
   onDragStart: (id: string, e: React.MouseEvent) => void;
 }
 
-function computeSize(label: string, kind?: NodeKind): number {
-  if (kind === 'umbrella') {
-    const len = label.length;
-    if (len <= 6) return 110;
-    if (len <= 12) return 130;
-    return 150;
-  }
-  const len = label.length;
-  if (len <= 4) return 60;
-  if (len <= 8) return 80;
-  if (len <= 14) return 100;
-  return 120;
-}
-
 export function Node({
   id,
   label,
@@ -44,7 +31,7 @@ export function Node({
   isDragging = false,
   onDragStart,
 }: NodeProps) {
-  const size = useMemo(() => computeSize(label, kind), [label, kind]);
+  const size = useMemo(() => computeNodeSize(label, kind), [label, kind]);
   const isMultiParent = (parentIds?.length ?? 0) > 1;
   const safeX = Number.isFinite(x) ? x : 0;
   const safeY = Number.isFinite(y) ? y : 0;

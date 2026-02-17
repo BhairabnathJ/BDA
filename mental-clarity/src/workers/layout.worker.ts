@@ -4,6 +4,7 @@ interface WorkerNode {
   id: string;
   x: number;
   y: number;
+  radius?: number;
   category?: NodeCategory;
   pinned?: boolean;
 }
@@ -165,6 +166,66 @@ function initializePositions(
   }
 }
 
+function resolveCollisions(
+  xs: number[],
+  ys: number[],
+  radii: number[],
+  canMove: boolean[],
+  cellSize: number,
+  padding = 8,
+): boolean {
+  const grid = buildSpatialGrid(xs, ys, cellSize);
+  let hadOverlap = false;
+
+  for (let i = 0; i < xs.length; i++) {
+    const gx = Math.floor(xs[i] / cellSize);
+    const gy = Math.floor(ys[i] / cellSize);
+
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        const bucket = grid.get(`${gx + ox}:${gy + oy}`);
+        if (!bucket) continue;
+
+        for (const j of bucket) {
+          if (j <= i) continue;
+
+          const dx = xs[j] - xs[i];
+          const dy = ys[j] - ys[i];
+          const distance = Math.sqrt(dx * dx + dy * dy) || 0.001;
+          const minDistance = radii[i] + radii[j] + padding;
+
+          if (distance >= minDistance) continue;
+          hadOverlap = true;
+
+          const overlap = minDistance - distance;
+          const ux = dx / distance;
+          const uy = dy / distance;
+          const iCanMove = canMove[i];
+          const jCanMove = canMove[j];
+
+          if (!iCanMove && !jCanMove) continue;
+
+          if (iCanMove && jCanMove) {
+            const half = overlap * 0.5;
+            xs[i] -= ux * half;
+            ys[i] -= uy * half;
+            xs[j] += ux * half;
+            ys[j] += uy * half;
+          } else if (iCanMove) {
+            xs[i] -= ux * overlap;
+            ys[i] -= uy * overlap;
+          } else if (jCanMove) {
+            xs[j] += ux * overlap;
+            ys[j] += uy * overlap;
+          }
+        }
+      }
+    }
+  }
+
+  return hadOverlap;
+}
+
 function runLayout(req: LayoutRequest): LayoutResponse {
   const width = Math.max(req.width, 500);
   const height = Math.max(req.height, 400);
@@ -205,16 +266,17 @@ function runLayout(req: LayoutRequest): LayoutResponse {
   const ys = new Array<number>(nodeCount);
   const velocitiesX = new Array<number>(nodeCount).fill(0);
   const velocitiesY = new Array<number>(nodeCount).fill(0);
+  const radii = req.nodes.map((node) => clamp(finiteOr(node.radius ?? config.nodeRadius, config.nodeRadius), 18, 220));
 
   initializePositions(req, degree, neighbors, ids, canMove, xs, ys);
 
-  const minPadding = config.nodeRadius + 18;
+  const maxRadius = Math.max(config.nodeRadius, ...radii);
   const spreadOverflow = Math.max(config.initialSpread * 0.65, 320);
   const minX = centerX - width * 0.5 - spreadOverflow;
   const maxX = centerX + width * 0.5 + spreadOverflow;
   const minY = centerY - height * 0.5 - spreadOverflow;
   const maxY = centerY + height * 0.5 + spreadOverflow;
-  const cellSize = Math.max(config.nodeRadius * 3, 110);
+  const cellSize = Math.max(maxRadius * 2.8, 110);
   const damping = 0.86;
 
   for (let iteration = 0; iteration < config.iterations; iteration++) {
@@ -257,7 +319,7 @@ function runLayout(req: LayoutRequest): LayoutResponse {
       const dy = ys[targetIndex] - ys[sourceIndex];
       const distance = Math.sqrt(dx * dx + dy * dy) || 0.001;
       const strength = clamp(finiteOr(edge.strength ?? 0.7, 0.7), 0.1, 1);
-      const targetDistance = config.nodeRadius * 2 + (1 - strength) * 150;
+      const targetDistance = radii[sourceIndex] + radii[targetIndex] + (1 - strength) * 150;
       const pull = (distance - targetDistance) * config.attractionStrength * (0.65 + strength) * 0.02;
       const forceX = (dx / distance) * pull;
       const forceY = (dy / distance) * pull;
@@ -289,47 +351,28 @@ function runLayout(req: LayoutRequest): LayoutResponse {
       ys[i] += velocitiesY[i];
     }
 
-    const collisionGrid = buildSpatialGrid(xs, ys, cellSize);
-    const minDistance = config.nodeRadius * 2;
-
-    for (let i = 0; i < nodeCount; i++) {
-      const gx = Math.floor(xs[i] / cellSize);
-      const gy = Math.floor(ys[i] / cellSize);
-
-      for (let ox = -1; ox <= 1; ox++) {
-        for (let oy = -1; oy <= 1; oy++) {
-          const bucket = collisionGrid.get(`${gx + ox}:${gy + oy}`);
-          if (!bucket) continue;
-
-          for (const j of bucket) {
-            if (j <= i) continue;
-            const dx = xs[j] - xs[i];
-            const dy = ys[j] - ys[i];
-            const distance = Math.sqrt(dx * dx + dy * dy) || 0.001;
-            if (distance >= minDistance) continue;
-
-            const overlap = (minDistance - distance) * 0.5;
-            const ux = dx / distance;
-            const uy = dy / distance;
-
-            if (canMove[i]) {
-              xs[i] -= ux * overlap;
-              ys[i] -= uy * overlap;
-            }
-            if (canMove[j]) {
-              xs[j] += ux * overlap;
-              ys[j] += uy * overlap;
-            }
-          }
-        }
-      }
-    }
+    resolveCollisions(xs, ys, radii, canMove, cellSize);
 
     for (let i = 0; i < nodeCount; i++) {
       if (!canMove[i]) continue;
-      xs[i] = clamp(xs[i], minX + minPadding, maxX - minPadding);
-      ys[i] = clamp(ys[i], minY + minPadding, maxY - minPadding);
+      const padding = radii[i] + 18;
+      xs[i] = clamp(xs[i], minX + padding, maxX - padding);
+      ys[i] = clamp(ys[i], minY + padding, maxY - padding);
     }
+  }
+
+  // Strict post-sweep to ensure no residual overlap remains.
+  for (let sweep = 0; sweep < 24; sweep++) {
+    const hadOverlap = resolveCollisions(xs, ys, radii, canMove, cellSize);
+
+    for (let i = 0; i < nodeCount; i++) {
+      if (!canMove[i]) continue;
+      const padding = radii[i] + 18;
+      xs[i] = clamp(xs[i], minX + padding, maxX - padding);
+      ys[i] = clamp(ys[i], minY + padding, maxY - padding);
+    }
+
+    if (!hadOverlap) break;
   }
 
   return {
