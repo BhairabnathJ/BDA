@@ -149,10 +149,28 @@ export interface AIRunTimings {
   entitiesMs: number;
   hierarchyMs?: number;
   relationshipsMs: number;
+  tasksMs?: number;
+}
+
+/** Per-prompt Ollama metrics stored with each AI run */
+export interface PromptMetricsSummary {
+  evalTokens: number;
+  promptTokens: number;
+  tokensPerSec: number;
+  timeToFirstTokenMs: number;
+  evalDurationMs: number;
+  totalDurationMs: number;
 }
 
 export interface AIRunMeta {
   timings: AIRunTimings;
   graphDensity: number;
   avgStrength: number;
+  /** Per-prompt LLM metrics (tokens, tok/s, TTFT, etc.) */
+  promptMetrics?: {
+    promptA?: PromptMetricsSummary;
+    promptB?: PromptMetricsSummary;
+    promptC?: PromptMetricsSummary;
+    promptD?: PromptMetricsSummary;
+  };
 }
