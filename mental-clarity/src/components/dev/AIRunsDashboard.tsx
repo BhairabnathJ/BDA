@@ -1,7 +1,20 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { AIRunMeta, PromptMetricsSummary } from '@/types/graph';
+
+interface RunArtifactNode {
+  id: string;
+  label: string;
+}
+
+interface RunArtifactConnection {
+  sourceId: string;
+  targetId: string;
+  label: string;
+  type: string;
+  strength?: number;
+}
 
 interface AIRunDoc {
   _id: string;
@@ -10,6 +23,10 @@ interface AIRunDoc {
   mode?: string;
   backend?: string;
   quant?: string;
+  artifacts?: {
+    nodes?: RunArtifactNode[];
+    connections?: RunArtifactConnection[];
+  };
   model: string;
   promptVersion: string;
   startedAt: number;
@@ -20,6 +37,15 @@ interface AIRunDoc {
   aiStatus: string;
   errorMessage?: string;
   meta?: AIRunMeta;
+}
+
+interface ConnectionReviewDoc {
+  connectionKey: string;
+  verdict: 'accept' | 'reject';
+}
+
+function toConnectionKey(c: RunArtifactConnection): string {
+  return `${c.sourceId}|${c.targetId}|${c.type}|${c.label}`;
 }
 
 function formatDate(ts: number): string {
@@ -223,12 +249,14 @@ export function AIRunsDashboard({
   onClose: () => void;
   onRerunBenchmark?: (text: string, sessionId?: string) => void | Promise<void>;
 }) {
+  const anyApi = api as any;
   const rawRuns = useQuery(api.aiRuns.listRuns, { limit: 200 });
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [backendFilter, setBackendFilter] = useState<string>('all');
   const [quantFilter, setQuantFilter] = useState<string>('all');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const upsertConnectionReview = useMutation(anyApi.connectionReviews.upsertReview as any) as (args: any) => Promise<unknown>;
 
   const runs = useMemo(() => {
     if (!rawRuns) return [];
@@ -240,6 +268,21 @@ export function AIRunsDashboard({
       return true;
     });
   }, [rawRuns, statusFilter, backendFilter, quantFilter]);
+
+  const expandedRun = useMemo(
+    () => runs.find((r) => r._id === expandedId) ?? null,
+    [runs, expandedId],
+  );
+
+  const activeReviews = useQuery(
+    anyApi.connectionReviews.listByRun as any,
+    expandedRun ? { runId: expandedRun._id as never } : "skip",
+  ) as ConnectionReviewDoc[] | undefined;
+
+  const reviewMap = useMemo(
+    () => new Map((activeReviews ?? []).map((r) => [r.connectionKey, r.verdict])),
+    [activeReviews],
+  );
 
   const handleExport = useCallback(() => {
     exportCSV(runs);
@@ -509,6 +552,106 @@ export function AIRunsDashboard({
                             )}
                             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-disabled)' }}>
                               Backend: {run.backend ?? 'unknown'} · Quant: {run.quant ?? 'unknown'}
+                            </div>
+                            <div style={{ marginTop: 10 }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                Connection Labels
+                              </div>
+                              {(run.artifacts?.connections?.length ?? 0) === 0 ? (
+                                <div style={{ fontSize: 11, color: 'var(--color-text-disabled)' }}>
+                                  No connection artifacts captured for this run.
+                                </div>
+                              ) : (
+                                <div style={{ display: 'grid', gap: 6 }}>
+                                  {run.artifacts?.connections?.map((c, idx) => {
+                                    const nodeMap = new Map((run.artifacts?.nodes ?? []).map((n) => [n.id, n.label]));
+                                    const sourceLabel = nodeMap.get(c.sourceId) ?? c.sourceId;
+                                    const targetLabel = nodeMap.get(c.targetId) ?? c.targetId;
+                                    const key = toConnectionKey(c);
+                                    const verdict = run._id === expandedRun?._id ? reviewMap.get(key) : undefined;
+
+                                    return (
+                                      <div
+                                        key={`${key}_${idx}`}
+                                        style={{
+                                          display: 'grid',
+                                          gridTemplateColumns: '1fr auto',
+                                          gap: 10,
+                                          alignItems: 'center',
+                                          background: 'rgba(255,255,255,0.5)',
+                                          border: '1px solid rgba(168,197,209,0.12)',
+                                          borderRadius: 6,
+                                          padding: '7px 9px',
+                                        }}
+                                      >
+                                        <div style={{ fontSize: 11 }}>
+                                          <span style={{ fontWeight: 600 }}>{sourceLabel}</span>
+                                          <span style={{ color: 'var(--color-text-disabled)' }}> → </span>
+                                          <span style={{ fontWeight: 600 }}>{targetLabel}</span>
+                                          <span style={{ color: 'var(--color-text-disabled)' }}> · {c.type} · </span>
+                                          <span>{c.label}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              upsertConnectionReview({
+                                                runId: run._id as never,
+                                                connectionKey: key,
+                                                sourceLabel,
+                                                targetLabel,
+                                                type: c.type,
+                                                label: c.label,
+                                                verdict: 'accept',
+                                                reviewer: 'manual',
+                                              }).catch((err: unknown) => console.error('[Reviews] Failed to upsert accept:', err));
+                                            }}
+                                            style={{
+                                              border: '1px solid rgba(127,184,159,0.4)',
+                                              background: verdict === 'accept' ? 'rgba(127,184,159,0.24)' : 'rgba(127,184,159,0.12)',
+                                              color: 'var(--color-success)',
+                                              borderRadius: 6,
+                                              padding: '3px 8px',
+                                              fontSize: 10,
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            Accept
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              upsertConnectionReview({
+                                                runId: run._id as never,
+                                                connectionKey: key,
+                                                sourceLabel,
+                                                targetLabel,
+                                                type: c.type,
+                                                label: c.label,
+                                                verdict: 'reject',
+                                                reviewer: 'manual',
+                                              }).catch((err: unknown) => console.error('[Reviews] Failed to upsert reject:', err));
+                                            }}
+                                            style={{
+                                              border: '1px solid rgba(197,143,143,0.4)',
+                                              background: verdict === 'reject' ? 'rgba(197,143,143,0.22)' : 'rgba(197,143,143,0.12)',
+                                              color: 'var(--color-error)',
+                                              borderRadius: 6,
+                                              padding: '3px 8px',
+                                              fontSize: 10,
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                            }}
+                                          >
+                                            Reject
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                             {onRerunBenchmark && (
                               <div style={{ marginTop: 10 }}>
