@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import type { ConnectionData, NodeData } from '@/types/graph';
 import styles from './ConnectionsLayer.module.css';
 
@@ -6,13 +7,35 @@ interface ConnectionsLayerProps {
   nodes: NodeData[];
 }
 
+interface TooltipState {
+  x: number;
+  y: number;
+  label: string;
+  type: string;
+  strength: number;
+}
+
 export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+
+  const handleMouseEnter = useCallback((conn: ConnectionData, mx: number, my: number) => {
+    setTooltip({
+      x: mx,
+      y: my - 16,
+      label: conn.label || 'connected',
+      type: conn.type,
+      strength: conn.strength,
+    });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setTooltip(null);
+  }, []);
 
   return (
     <svg className={styles.svg} xmlns="http://www.w3.org/2000/svg">
       <defs>
-        {/* Arrowhead marker */}
         <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
           <polygon points="0 0, 8 3, 0 6" fill="var(--color-text-secondary)" fillOpacity="0.4" />
         </marker>
@@ -25,12 +48,20 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
         const opacity = 0.2 + conn.strength * 0.6;
         const strokeWidth = 1 + conn.strength * 2;
 
-        // Calculate midpoint for label
         const mx = (source.x + target.x) / 2;
         const my = (source.y + target.y) / 2;
 
         return (
           <g key={conn.id}>
+            {/* Invisible wider hit area for hover */}
+            <line
+              x1={source.x} y1={source.y}
+              x2={target.x} y2={target.y}
+              className={styles.hitArea}
+              onMouseEnter={() => handleMouseEnter(conn, mx, my)}
+              onMouseLeave={handleMouseLeave}
+            />
+            {/* Visible connection line */}
             <line
               x1={source.x} y1={source.y}
               x2={target.x} y2={target.y}
@@ -50,6 +81,24 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
           </g>
         );
       })}
+
+      {/* Tooltip */}
+      {tooltip && (
+        <foreignObject
+          x={tooltip.x - 80}
+          y={tooltip.y - 40}
+          width="160"
+          height="50"
+          className={styles.tooltipContainer}
+        >
+          <div className={styles.tooltip}>
+            <span className={styles.tooltipLabel}>{tooltip.label}</span>
+            <span className={styles.tooltipMeta}>
+              {tooltip.type} · {Math.round(tooltip.strength * 100)}%
+            </span>
+          </div>
+        </foreignObject>
+      )}
     </svg>
   );
 }

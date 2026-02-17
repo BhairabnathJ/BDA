@@ -20,6 +20,9 @@
     box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1),
     background 300ms cubic-bezier(0.4, 0, 0.2, 1),
     border-color 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-width 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    width 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    height 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
     opacity 300ms cubic-bezier(0.4, 0, 0.2, 1);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -78,6 +81,9 @@
     box-shadow 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
     background 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
     border-color 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    border-width 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
+    width 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    height 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
     opacity 500ms cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
@@ -165,4 +171,18 @@
     opacity: 1;
     transform: translateZ(0) scale(1);
   }
+}
+
+.node,
+.node:hover,
+.node.selected,
+.node.dragging,
+.node.organic,
+.node.technical,
+.node.creative,
+.node.learning,
+.node.personal,
+.node.umbrella,
+.node.multiParent {
+  background: transparent !important;
 }

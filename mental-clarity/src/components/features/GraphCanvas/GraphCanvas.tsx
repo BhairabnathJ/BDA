@@ -4,6 +4,7 @@ import { EmptyState } from './EmptyState';
 import { Node } from './Node';
 import type { NodeData } from './Node';
 import { ConnectionsLayer } from './ConnectionsLayer/ConnectionsLayer';
+import { useForceLayout } from '@/hooks/useForceLayout';
 import type { ConnectionData } from '@/types/graph';
 import styles from './GraphCanvas.module.css';
 
@@ -29,6 +30,9 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
   const [hasMomentum, setHasMomentum] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+
+  // Force-directed layout
+  const { setDragging } = useForceLayout(nodes, connections, onNodeMove);
 
   const panDragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
@@ -186,8 +190,9 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       };
 
       setDraggingNodeId(nodeId);
+      setDragging(nodeId);
     },
-    [nodes],
+    [nodes, setDragging],
   );
 
   useEffect(() => {
@@ -229,6 +234,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
 
       nodeDragState.current = null;
       setDraggingNodeId(null);
+      setDragging(null);
     };
 
     document.addEventListener('mousemove', handleDocMouseMove);
@@ -237,7 +243,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop]);
+  }, [zoom, onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop, setDragging]);
 
   const hasNodes = nodes.length > 0;
 
