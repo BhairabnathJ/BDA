@@ -53,11 +53,11 @@ export function parseNodeMatchResponse(raw: string): NodeMatchingResponse {
         : null,
       parents: Array.isArray((t as Record<string, unknown>).parents)
         ? ((t as Record<string, unknown>).parents as Record<string, unknown>[])
-            .filter((p: Record<string, unknown>) => typeof p?.parentId === 'string')
-            .map((p: Record<string, unknown>) => ({
-              parentId: String(p.parentId),
-              contextSegment: String(p.contextSegment || ''),
-            }))
+          .filter((p: Record<string, unknown>) => typeof p?.parentId === 'string')
+          .map((p: Record<string, unknown>) => ({
+            parentId: String(p.parentId),
+            contextSegment: String(p.contextSegment || ''),
+          }))
         : [],
     }));
 
