@@ -6,6 +6,8 @@ import type { AIRunMeta, PromptMetricsSummary } from '@/types/graph';
 interface AIRunDoc {
   _id: string;
   dumpText: string;
+  sessionId?: string;
+  mode?: string;
   model: string;
   promptVersion: string;
   startedAt: number;
@@ -212,7 +214,13 @@ const COLUMN_HEADERS = [
   'tok/s (A)', 'Tokens', 'Entities', 'Relations', 'Tasks', 'Model',
 ];
 
-export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
+export function AIRunsDashboard({
+  onClose,
+  onRerunBenchmark,
+}: {
+  onClose: () => void;
+  onRerunBenchmark?: (text: string, sessionId?: string) => void | Promise<void>;
+}) {
   const rawRuns = useQuery(api.aiRuns.listRuns, { limit: 200 });
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
@@ -450,6 +458,28 @@ export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
                             {run.errorMessage && (
                               <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-error)' }}>
                                 Error: {run.errorMessage}
+                              </div>
+                            )}
+                            {onRerunBenchmark && (
+                              <div style={{ marginTop: 10 }}>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRerunBenchmark(run.dumpText, run.sessionId);
+                                  }}
+                                  style={{
+                                    border: '1px solid rgba(168,197,209,0.25)',
+                                    background: 'rgba(168,197,209,0.10)',
+                                    color: 'var(--color-primary-dark)',
+                                    padding: '5px 10px',
+                                    borderRadius: 6,
+                                    cursor: 'pointer',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Rerun Benchmark
+                                </button>
                               </div>
                             )}
                           </td>
