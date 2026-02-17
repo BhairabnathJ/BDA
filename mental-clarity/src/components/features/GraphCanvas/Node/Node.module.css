@@ -16,6 +16,8 @@
     0 0 0 1px rgba(168, 197, 209, 0.1) inset;
   transform: translateZ(0);
   transition:
+    left 1200ms var(--ease-organic),
+    top 1200ms var(--ease-organic),
     transform 300ms cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 300ms cubic-bezier(0.4, 0, 0.2, 1),
     background 300ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -49,6 +51,8 @@
     0 0 0 2px rgba(168, 197, 209, 0.4) inset;
   transform: translateZ(0) scale(1.12);
   transition:
+    left 1200ms var(--ease-organic),
+    top 1200ms var(--ease-organic),
     transform 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
     box-shadow 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
     background 400ms cubic-bezier(0.34, 1.2, 0.64, 1),
@@ -81,6 +85,8 @@
 /* Drop settle */
 .node:not(.dragging):not(:hover):not(.selected) {
   transition:
+    left 1200ms var(--ease-organic),
+    top 1200ms var(--ease-organic),
     transform 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
     box-shadow 500ms cubic-bezier(0.34, 1.4, 0.64, 1),
     background 500ms cubic-bezier(0.34, 1.4, 0.64, 1),

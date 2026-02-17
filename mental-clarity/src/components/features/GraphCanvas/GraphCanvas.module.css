@@ -21,6 +21,88 @@
   will-change: transform;
 }
 
+.layoutControls {
+  position: absolute;
+  top: var(--space-small);
+  right: var(--space-small);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-small);
+  padding: 10px 12px;
+  border-radius: var(--radius-large);
+  background: rgba(245, 241, 232, 0.9);
+  border: 1px solid rgba(168, 197, 209, 0.45);
+  box-shadow: var(--shadow-subtle);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.controlButton {
+  border: 1px solid rgba(139, 165, 184, 0.5);
+  background: rgba(168, 197, 209, 0.16);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-smooth), border-color var(--duration-fast) var(--ease-smooth), opacity var(--duration-fast) var(--ease-smooth);
+}
+
+.controlButton:hover:not(:disabled) {
+  background: rgba(168, 197, 209, 0.3);
+  border-color: rgba(139, 165, 184, 0.75);
+}
+
+.controlButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.controlLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+}
+
+.slider {
+  width: 136px;
+  accent-color: var(--color-primary-dark);
+}
+
+.sliderValue {
+  min-width: 36px;
+  text-align: right;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.layoutStatus {
+  font-size: var(--font-size-tiny);
+  font-weight: 600;
+  color: var(--color-primary-dark);
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(168, 197, 209, 0.16);
+}
+
+.layoutStatusIdle {
+  color: var(--color-text-secondary);
+  background: rgba(168, 197, 209, 0.1);
+}
+
 .emptyStateWrapper {
   opacity: 1;
   transition: opacity 500ms var(--ease-smooth);
@@ -29,4 +111,18 @@
 .emptyStateWrapper.hidden {
   opacity: 0;
   pointer-events: none;
+}
+
+@media (max-width: 1024px) {
+  .layoutControls {
+    top: var(--space-tiny);
+    right: var(--space-tiny);
+    left: var(--space-tiny);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .slider {
+    width: 120px;
+  }
 }

@@ -4,7 +4,7 @@ import { EmptyState } from './EmptyState';
 import { Node } from './Node';
 import type { NodeData } from './Node';
 import { ConnectionsLayer } from './ConnectionsLayer/ConnectionsLayer';
-import { useForceLayout } from '@/hooks/useForceLayout';
+import { useGraphLayout } from '@/hooks/useGraphLayout';
 import type { ConnectionData } from '@/types/graph';
 import styles from './GraphCanvas.module.css';
 
@@ -15,6 +15,7 @@ const DOUBLE_CLICK_MS = 400;
 const DRAG_HOLD_MS = 200;
 const MOMENTUM_FRICTION = 0.92;
 const MOMENTUM_MIN_VELOCITY = 0.5;
+const DEFAULT_SPREAD = 300;
 
 interface GraphCanvasProps {
   nodes: NodeData[];
@@ -35,15 +36,36 @@ export function GraphCanvas({
   onNodeDragMove,
   onNodeDrop,
 }: GraphCanvasProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const [hasMomentum, setHasMomentum] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [lockPositions, setLockPositions] = useState(false);
+  const [layoutSpread, setLayoutSpread] = useState(DEFAULT_SPREAD);
+  const [canvasSize, setCanvasSize] = useState({
+    width: typeof window === 'undefined' ? 1200 : window.innerWidth,
+    height: typeof window === 'undefined' ? 800 : window.innerHeight,
+  });
 
-  // Force-directed layout
-  const { setDragging } = useForceLayout(nodes, connections, onNodeMove);
+  const {
+    isComputing,
+    setDragging: setLayoutDragging,
+    pinNode,
+    resetLayout,
+  } = useGraphLayout({
+    nodes,
+    connections,
+    onNodeMove,
+    enabled: true,
+    lockPositions,
+    repulsionStrength: layoutSpread,
+    canvasWidth: canvasSize.width,
+    canvasHeight: canvasSize.height,
+  });
 
   const panDragStart = useRef({ x: 0, y: 0 });
   const panStart = useRef({ x: 0, y: 0 });
@@ -54,7 +76,6 @@ export function GraphCanvas({
   const clickTimerRef = useRef<number | null>(null);
   const lastClickRef = useRef<{ nodeId: string; at: number } | null>(null);
 
-  // Node drag refs
   const nodeDragState = useRef<{
     nodeId: string;
     initialMouseX: number;
@@ -63,6 +84,7 @@ export function GraphCanvas({
     initialNodeY: number;
     didMove: boolean;
   } | null>(null);
+
   const pendingActivationRef = useRef<{
     nodeId: string;
     initialMouseX: number;
@@ -71,6 +93,32 @@ export function GraphCanvas({
     initialNodeY: number;
     timerId: number;
   } | null>(null);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    const updateCanvasSize = () => {
+      const rect = element.getBoundingClientRect();
+      setCanvasSize({
+        width: Math.max(1, rect.width),
+        height: Math.max(1, rect.height),
+      });
+    };
+
+    updateCanvasSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateCanvasSize();
+      });
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
+  }, []);
 
   const queueSingleClick = useCallback((nodeId: string, now: number) => {
     if (clickTimerRef.current !== null) {
@@ -103,13 +151,10 @@ export function GraphCanvas({
     queueSingleClick(nodeId, now);
   }, [onNodeDoubleClick, queueSingleClick]);
 
-  // --- Canvas pan handlers ---
-
   const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button !== 0) return;
+    (event: React.MouseEvent) => {
+      if (event.button !== 0) return;
 
-      // Cancel any ongoing momentum
       if (momentumRaf.current) {
         cancelAnimationFrame(momentumRaf.current);
         momentumRaf.current = 0;
@@ -118,33 +163,32 @@ export function GraphCanvas({
 
       setIsPanning(true);
       didPanDrag.current = false;
-      panDragStart.current = { x: e.clientX, y: e.clientY };
+      panDragStart.current = { x: event.clientX, y: event.clientY };
       panStart.current = { x: pan.x, y: pan.y };
-      lastMouse.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+      lastMouse.current = { x: event.clientX, y: event.clientY, t: Date.now() };
       velocity.current = { x: 0, y: 0 };
     },
     [pan],
   );
 
   const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
+    (event: React.MouseEvent) => {
       if (!isPanning || draggingNodeId) return;
-      const dx = e.clientX - panDragStart.current.x;
-      const dy = e.clientY - panDragStart.current.y;
+      const dx = event.clientX - panDragStart.current.x;
+      const dy = event.clientY - panDragStart.current.y;
       if (Math.abs(dx) > CLICK_THRESHOLD_PX || Math.abs(dy) > CLICK_THRESHOLD_PX) {
         didPanDrag.current = true;
       }
 
-      // Track velocity
       const now = Date.now();
       const dt = now - lastMouse.current.t;
       if (dt > 0) {
         velocity.current = {
-          x: (e.clientX - lastMouse.current.x) / dt * 16,
-          y: (e.clientY - lastMouse.current.y) / dt * 16,
+          x: (event.clientX - lastMouse.current.x) / dt * 16,
+          y: (event.clientY - lastMouse.current.y) / dt * 16,
         };
       }
-      lastMouse.current = { x: e.clientX, y: e.clientY, t: now };
+      lastMouse.current = { x: event.clientX, y: event.clientY, t: now };
 
       setPan({
         x: panStart.current.x + dx,
@@ -158,26 +202,25 @@ export function GraphCanvas({
     if (!isPanning) return;
     setIsPanning(false);
 
-    // Apply momentum if velocity is significant
     const vx = velocity.current.x;
     const vy = velocity.current.y;
     if (Math.abs(vx) > MOMENTUM_MIN_VELOCITY || Math.abs(vy) > MOMENTUM_MIN_VELOCITY) {
       setHasMomentum(true);
-      const currentVel = { x: vx, y: vy };
+      const currentVelocity = { x: vx, y: vy };
 
       const animate = () => {
-        currentVel.x *= MOMENTUM_FRICTION;
-        currentVel.y *= MOMENTUM_FRICTION;
+        currentVelocity.x *= MOMENTUM_FRICTION;
+        currentVelocity.y *= MOMENTUM_FRICTION;
 
-        if (Math.abs(currentVel.x) < MOMENTUM_MIN_VELOCITY && Math.abs(currentVel.y) < MOMENTUM_MIN_VELOCITY) {
+        if (Math.abs(currentVelocity.x) < MOMENTUM_MIN_VELOCITY && Math.abs(currentVelocity.y) < MOMENTUM_MIN_VELOCITY) {
           setHasMomentum(false);
           momentumRaf.current = 0;
           return;
         }
 
         setPan((prev) => ({
-          x: prev.x + currentVel.x,
-          y: prev.y + currentVel.y,
+          x: prev.x + currentVelocity.x,
+          y: prev.y + currentVelocity.y,
         }));
 
         momentumRaf.current = requestAnimationFrame(animate);
@@ -187,7 +230,6 @@ export function GraphCanvas({
     }
   }, [isPanning]);
 
-  // Cleanup momentum on unmount
   useEffect(() => {
     return () => {
       if (momentumRaf.current) cancelAnimationFrame(momentumRaf.current);
@@ -207,8 +249,6 @@ export function GraphCanvas({
     }
   }, []);
 
-  // Zoom via native wheel listener (passive: false to allow preventDefault)
-  const containerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   const panRef = useRef(pan);
   const draggingNodeIdRef = useRef(draggingNodeId);
@@ -218,21 +258,21 @@ export function GraphCanvas({
   useEffect(() => { draggingNodeIdRef.current = draggingNodeId; }, [draggingNodeId]);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    const element = containerRef.current;
+    if (!element) return;
 
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
       if (draggingNodeIdRef.current) return;
 
-      const rect = el.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+      const rect = element.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
 
       const currentZoom = zoomRef.current;
       const currentPan = panRef.current;
 
-      const delta = -e.deltaY * 0.004;
+      const delta = -event.deltaY * 0.004;
       const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, currentZoom * (1 + delta)));
       const scale = newZoom / currentZoom;
 
@@ -243,22 +283,20 @@ export function GraphCanvas({
       setZoom(newZoom);
     };
 
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
+    element.addEventListener('wheel', handleWheel, { passive: false });
+    return () => element.removeEventListener('wheel', handleWheel);
   }, []);
 
-  // --- Node drag handlers ---
-
   const handleNodeDragStart = useCallback(
-    (nodeId: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
+    (nodeId: string, event: React.MouseEvent) => {
+      event.stopPropagation();
+      event.preventDefault();
 
-      const node = nodes.find((n) => n.id === nodeId);
+      const node = nodes.find((candidate) => candidate.id === nodeId);
       if (!node) return;
-      const mouseX = e.clientX;
-      const mouseY = e.clientY;
 
+      const mouseX = event.clientX;
+      const mouseY = event.clientY;
       const pending = pendingActivationRef.current;
       if (pending) {
         window.clearTimeout(pending.timerId);
@@ -282,20 +320,20 @@ export function GraphCanvas({
           };
           pendingActivationRef.current = null;
           setDraggingNodeId(nodeId);
-          setDragging(nodeId);
+          setLayoutDragging(nodeId);
         }, DRAG_HOLD_MS),
       };
     },
-    [nodes, setDragging],
+    [nodes, setLayoutDragging],
   );
 
   useEffect(() => {
-    const handleDocMouseMove = (e: MouseEvent) => {
+    const handleDocMouseMove = (event: MouseEvent) => {
       const state = nodeDragState.current;
       if (!state) return;
 
-      const dx = e.clientX - state.initialMouseX;
-      const dy = e.clientY - state.initialMouseY;
+      const dx = event.clientX - state.initialMouseX;
+      const dy = event.clientY - state.initialMouseY;
 
       if (Math.abs(dx) > CLICK_THRESHOLD_PX || Math.abs(dy) > CLICK_THRESHOLD_PX) {
         state.didMove = true;
@@ -303,16 +341,14 @@ export function GraphCanvas({
 
       const newX = state.initialNodeX + dx / zoom;
       const newY = state.initialNodeY + dy / zoom;
-
       onNodeMove(state.nodeId, newX, newY);
 
-      // Emit screen-space position for drag-to-archive hit testing
       if (state.didMove) {
-        onNodeDragMove?.(state.nodeId, e.clientX, e.clientY);
+        onNodeDragMove?.(state.nodeId, event.clientX, event.clientY);
       }
     };
 
-    const handleDocMouseUp = (e: MouseEvent) => {
+    const handleDocMouseUp = (event: MouseEvent) => {
       const pending = pendingActivationRef.current;
       if (pending) {
         window.clearTimeout(pending.timerId);
@@ -323,8 +359,8 @@ export function GraphCanvas({
       const state = nodeDragState.current;
       if (state) {
         if (state.didMove) {
-          // Emit drop position for archive zone hit testing
-          onNodeDrop?.(state.nodeId, e.clientX, e.clientY);
+          pinNode(state.nodeId);
+          onNodeDrop?.(state.nodeId, event.clientX, event.clientY);
         } else {
           handleNodeActivate(state.nodeId);
         }
@@ -332,7 +368,7 @@ export function GraphCanvas({
 
       nodeDragState.current = null;
       setDraggingNodeId(null);
-      setDragging(null);
+      setLayoutDragging(null);
     };
 
     document.addEventListener('mousemove', handleDocMouseMove);
@@ -341,7 +377,11 @@ export function GraphCanvas({
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove, onNodeDragMove, onNodeDrop, setDragging, handleNodeActivate]);
+  }, [zoom, onNodeMove, onNodeDragMove, onNodeDrop, pinNode, setLayoutDragging, handleNodeActivate]);
+
+  const stopCanvasPropagation = useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  }, []);
 
   const hasNodes = nodes.length > 0;
 
@@ -360,6 +400,50 @@ export function GraphCanvas({
       onMouseLeave={handleMouseUp}
       onClick={handleCanvasClick}
     >
+      <div
+        className={styles.layoutControls}
+        onMouseDown={stopCanvasPropagation}
+        onClick={stopCanvasPropagation}
+        onWheel={stopCanvasPropagation}
+      >
+        <button
+          type="button"
+          className={styles.controlButton}
+          onClick={() => resetLayout()}
+          disabled={nodes.length < 2 || lockPositions}
+        >
+          Reset Layout
+        </button>
+
+        <label className={styles.controlLabel}>
+          <span>Spread</span>
+          <input
+            className={styles.slider}
+            type="range"
+            min={120}
+            max={780}
+            step={10}
+            value={layoutSpread}
+            onChange={(event) => setLayoutSpread(Number(event.target.value))}
+            disabled={lockPositions}
+          />
+          <span className={styles.sliderValue}>{layoutSpread}</span>
+        </label>
+
+        <label className={styles.toggleLabel}>
+          <input
+            type="checkbox"
+            checked={lockPositions}
+            onChange={(event) => setLockPositions(event.target.checked)}
+          />
+          <span>Lock positions</span>
+        </label>
+
+        <span className={cn(styles.layoutStatus, !isComputing && styles.layoutStatusIdle)}>
+          {isComputing ? 'Arranging...' : 'Layout ready'}
+        </span>
+      </div>
+
       <div
         className={styles.surface}
         style={{
