@@ -8,7 +8,7 @@ import { ArchivePanel } from '@/components/features/ArchivePanel';
 import { ArchiveDropZone } from '@/components/features/ArchiveDropZone';
 import { AIRunsDashboard } from '@/components/dev/AIRunsDashboard';
 import type { EdgeData } from '@/components/features/GraphCanvas/Node';
-import type { ConnectionData, NodeData, PageData, DumpData } from '@/types/graph';
+import type { ConnectionData, NodeData, PageData, DumpData, ExtractedTask } from '@/types/graph';
 import { useAIExtraction } from '@/hooks/useAIExtraction';
 import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
@@ -17,11 +17,10 @@ function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [connections, setConnections] = useState<ConnectionData[]>([]);
   const [edges, setEdges] = useState<EdgeData[]>([]);
-  // Pages and dumps are populated by AI extraction and will be used by PagePanel (Phase 3)
   const [pages, setPages] = useState<PageData[]>([]);
-  void pages;
-  const [dumps, setDumps] = useState<DumpData[]>([]);
-  void dumps;
+  // Dumps track raw brain dump text history for context in future extractions
+  const [, setDumps] = useState<DumpData[]>([]);
+  const [tasks, setTasks] = useState<ExtractedTask[]>([]);
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
   const [showArchive, setShowArchive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -102,6 +101,8 @@ function App() {
       setConnections((prev) => [...prev, ...newConns]),
     addPages: (newPages: PageData[]) =>
       setPages((prev) => [...prev, ...newPages]),
+    addTasks: (newTasks: ExtractedTask[]) =>
+      setTasks((prev) => [...prev, ...newTasks]),
     addDump: (dump: DumpData) =>
       setDumps((prev) => [...prev, dump]),
     getExistingNodes: () => nodesRef.current,
@@ -236,6 +237,12 @@ function App() {
     setDetailNodeId(nodeId);
   }, []);
 
+  const handleUpdatePage = useCallback((pageId: string, updates: Partial<PageData>) => {
+    setPages((prev) =>
+      prev.map((p) => (p.id === pageId ? { ...p, ...updates } : p)),
+    );
+  }, []);
+
   // --- Drag-to-archive ---
 
   const handleNodeDragMove = useCallback((_nodeId: string, screenX: number, screenY: number) => {
@@ -308,11 +315,14 @@ function App() {
           node={detailNode}
           nodes={activeNodes}
           edges={edges}
+          pages={pages}
+          tasks={tasks}
           onUpdate={handleUpdateNode}
           onArchive={handleArchiveNode}
           onAddEdge={handleAddEdge}
           onRemoveEdge={handleRemoveEdge}
           onNavigate={handleNavigateNode}
+          onUpdatePage={handleUpdatePage}
           onClose={() => setDetailNodeId(null)}
         />
       )}

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
-import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta } from '@/types/graph';
+import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, ExtractedTask } from '@/types/graph';
 
 export interface AIRunResult {
   rawText: string;
@@ -19,6 +19,7 @@ export interface GraphCallbacks {
   mergeNodes: (merges: Map<string, string>) => void;
   addConnections: (connections: ConnectionData[]) => void;
   addPages: (pages: PageData[]) => void;
+  addTasks: (tasks: ExtractedTask[]) => void;
   addDump: (dump: DumpData) => void;
   getExistingNodes: () => NodeData[];
 }
@@ -84,6 +85,9 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
           }
           if (refinement.pages.length > 0) {
             callbacks.addPages(refinement.pages);
+          }
+          if (refinement.tasks.length > 0) {
+            callbacks.addTasks(refinement.tasks);
           }
         } catch (err) {
           console.warn('[AI] Phase 2 failed (Phase 1 nodes still visible):', err);

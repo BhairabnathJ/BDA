@@ -477,6 +477,152 @@
   text-align: center;
 }
 
+/* Page Contexts section */
+.contextsSection {
+  margin-bottom: var(--space-large);
+}
+
+.contextCard {
+  padding: var(--space-small);
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-medium);
+  border: 1px solid rgba(168, 197, 209, 0.12);
+  margin-bottom: var(--space-tiny);
+}
+
+.contextHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tiny);
+  margin-bottom: var(--space-tiny);
+}
+
+.contextParentLink {
+  border: none;
+  background: rgba(168, 197, 209, 0.1);
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-tiny);
+  font-weight: 500;
+  color: var(--color-primary-dark);
+  cursor: pointer;
+  padding: 2px var(--space-tiny);
+  border-radius: var(--radius-micro);
+  transition: background var(--duration-micro) var(--ease-smooth);
+}
+
+.contextParentLink:hover {
+  background: rgba(168, 197, 209, 0.2);
+}
+
+.contextSegments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-micro);
+}
+
+.contextQuote {
+  margin: 0;
+  padding-left: var(--space-small);
+  border-left: 2px solid rgba(168, 197, 209, 0.3);
+  font-size: var(--font-size-caption);
+  font-style: italic;
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.contextSummary {
+  margin-top: var(--space-tiny);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-body);
+  padding: var(--space-tiny);
+  background: rgba(168, 197, 209, 0.06);
+  border-radius: var(--radius-small);
+}
+
+.alsoInSection {
+  margin-top: var(--space-tiny);
+  display: flex;
+  align-items: center;
+  gap: var(--space-tiny);
+  flex-wrap: wrap;
+}
+
+.alsoInLabel {
+  font-size: var(--font-size-tiny);
+  color: var(--color-text-disabled);
+}
+
+.alsoInTag {
+  border: none;
+  background: rgba(168, 197, 209, 0.1);
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-tiny);
+  color: var(--color-primary-dark);
+  cursor: pointer;
+  padding: 2px var(--space-tiny);
+  border-radius: 10px;
+  transition: background var(--duration-micro) var(--ease-smooth);
+}
+
+.alsoInTag:hover {
+  background: rgba(168, 197, 209, 0.2);
+}
+
+/* Tasks section */
+.tasksSection {
+  margin-bottom: var(--space-large);
+}
+
+.tasksList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-micro);
+}
+
+.taskItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-tiny);
+  padding: var(--space-micro) var(--space-tiny);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-body);
+}
+
+.taskCheckbox {
+  flex-shrink: 0;
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+}
+
+.taskLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.generatingDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-circle);
+  background: var(--color-primary);
+  margin-left: var(--space-micro);
+  animation: pulse 1.2s var(--ease-smooth) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.emptyContexts {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-disabled);
+  padding: var(--space-small) 0;
+  text-align: center;
+}
+
 /* Footer actions */
 .footer {
   flex-shrink: 0;
