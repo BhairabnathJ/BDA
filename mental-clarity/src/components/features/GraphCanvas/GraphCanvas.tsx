@@ -148,27 +148,45 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
     }
   }, []);
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      if (draggingNodeId) return;
+  // Zoom via native wheel listener (passive: false to allow preventDefault)
+  const containerRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  const panRef = useRef(pan);
+  const draggingNodeIdRef = useRef(draggingNodeId);
 
-      const rect = e.currentTarget.getBoundingClientRect();
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  useEffect(() => { panRef.current = pan; }, [pan]);
+  useEffect(() => { draggingNodeIdRef.current = draggingNodeId; }, [draggingNodeId]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (draggingNodeIdRef.current) return;
+
+      const rect = el.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
+      const currentZoom = zoomRef.current;
+      const currentPan = panRef.current;
+
       const delta = -e.deltaY * 0.001;
-      const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * (1 + delta)));
-      const scale = newZoom / zoom;
+      const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, currentZoom * (1 + delta)));
+      const scale = newZoom / currentZoom;
 
       setPan({
-        x: mouseX - scale * (mouseX - pan.x),
-        y: mouseY - scale * (mouseY - pan.y),
+        x: mouseX - scale * (mouseX - currentPan.x),
+        y: mouseY - scale * (mouseY - currentPan.y),
       });
       setZoom(newZoom);
-    },
-    [zoom, pan, draggingNodeId],
-  );
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
 
   // --- Node drag handlers ---
 
@@ -249,6 +267,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         'bg-dot-grid',
         styles.container,
@@ -260,7 +279,6 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onClick={handleCanvasClick}
-      onWheel={handleWheel}
     >
       <div
         className={styles.surface}
