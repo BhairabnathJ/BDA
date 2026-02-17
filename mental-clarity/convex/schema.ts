@@ -47,4 +47,20 @@ export default defineSchema({
   })
     .index("by_run", ["runId"])
     .index("by_run_key", ["runId", "connectionKey"]),
+  prompt_profiles: defineTable({
+    profileId: v.string(),
+    version: v.string(),
+    templates: v.object({
+      promptA: v.optional(v.string()),
+      promptB: v.optional(v.string()),
+      promptC: v.optional(v.string()),
+      promptD: v.optional(v.string()),
+      promptE: v.optional(v.string()),
+    }),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_profile_id", ["profileId"])
+    .index("by_active", ["isActive"]),
 });
