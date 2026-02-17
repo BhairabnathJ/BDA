@@ -4,6 +4,8 @@
   height: 100vh;
   overflow: hidden;
   cursor: grab;
+  --immersion-origin-x: 50%;
+  --immersion-origin-y: 50%;
 }
 
 .container.panning {
@@ -14,11 +16,78 @@
   cursor: grabbing;
 }
 
+.container.immersive {
+  background-image:
+    radial-gradient(circle at var(--immersion-origin-x) var(--immersion-origin-y), rgba(168, 197, 209, 0.16), transparent 38%),
+    radial-gradient(var(--color-border) 1px, transparent 2px);
+}
+
 .surface {
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
   will-change: transform;
+}
+
+.surfaceMotion {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: var(--immersion-origin-x) var(--immersion-origin-y);
+}
+
+.enteringImmersion {
+  animation: vortexIn 680ms var(--ease-organic);
+  pointer-events: none;
+}
+
+.exitingImmersion {
+  animation: vortexOut 520ms var(--ease-organic);
+  pointer-events: none;
+}
+
+.scopeHud {
+  position: absolute;
+  top: var(--space-small);
+  left: var(--space-small);
+  z-index: 24;
+  display: flex;
+  align-items: center;
+  gap: var(--space-tiny);
+  padding: 10px 12px;
+  border-radius: var(--radius-large);
+  background: rgba(245, 241, 232, 0.92);
+  border: 1px solid rgba(168, 197, 209, 0.45);
+  box-shadow: var(--shadow-subtle);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.backButton {
+  border: 1px solid rgba(139, 165, 184, 0.52);
+  background: rgba(168, 197, 209, 0.2);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-smooth), border-color var(--duration-fast) var(--ease-smooth);
+}
+
+.backButton:hover {
+  background: rgba(168, 197, 209, 0.34);
+  border-color: rgba(139, 165, 184, 0.78);
+}
+
+.scopeLabel {
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .layoutControls {
@@ -113,9 +182,49 @@
   pointer-events: none;
 }
 
+@keyframes vortexIn {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1) rotate(0deg);
+  }
+
+  65% {
+    opacity: 0.35;
+    filter: blur(2px);
+    transform: scale(2.2) rotate(-7deg);
+  }
+
+  100% {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(3.1) rotate(-12deg);
+  }
+}
+
+@keyframes vortexOut {
+  0% {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(3.1) rotate(12deg);
+  }
+
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1) rotate(0deg);
+  }
+}
+
 @media (max-width: 1024px) {
-  .layoutControls {
+  .scopeHud {
     top: var(--space-tiny);
+    left: var(--space-tiny);
+    max-width: calc(100% - 140px);
+  }
+
+  .layoutControls {
+    top: calc(var(--space-tiny) + 58px);
     right: var(--space-tiny);
     left: var(--space-tiny);
     flex-wrap: wrap;
@@ -124,5 +233,12 @@
 
   .slider {
     width: 120px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enteringImmersion,
+  .exitingImmersion {
+    animation: none;
   }
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { GraphCanvas } from '@/components/features/GraphCanvas';
+import type { GraphCanvasMode, GraphTransitionPhase } from '@/components/features/GraphCanvas';
 import { InputBar } from '@/components/layout/InputBar';
 import { NodeDetailPanel } from '@/components/features/GraphCanvas/NodeDetailPanel';
 import { ArchivePanel } from '@/components/features/ArchivePanel';
@@ -15,6 +16,9 @@ import { logAIRun } from '@/services/analytics/aiRunsClient';
 import { hashInput } from '@/services/analytics/runHash';
 import { getAIBenchmarkQuantProfile, getAIQuantProfile } from '@/services/ai/aiClient';
 
+const IMMERSION_ENTER_MS = 560;
+const IMMERSION_EXIT_MS = 420;
+
 interface ActivePromptProfile {
   profileId: string;
   version: string;
@@ -26,6 +30,10 @@ interface ActivePromptProfile {
     promptE?: string;
   };
 }
+
+type GraphScope =
+  | { mode: 'main' }
+  | { mode: 'immersive'; umbrellaId: string };
 
 function sanitizeNodeCoordinates(node: NodeData, index: number, total: number): NodeData {
   const width = typeof window === 'undefined' ? 1200 : window.innerWidth;
@@ -42,6 +50,35 @@ function sanitizeNodeCoordinates(node: NodeData, index: number, total: number): 
   };
 }
 
+function getMainCanvasNodes(activeNodes: NodeData[]): NodeData[] {
+  const explicitUmbrellas = activeNodes.filter((node) => node.kind === 'umbrella');
+  if (explicitUmbrellas.length > 0) return explicitUmbrellas;
+  return activeNodes.filter((node) => (node.parentIds?.length ?? 0) === 0);
+}
+
+function getImmersiveNodes(
+  activeNodes: NodeData[],
+  connections: ConnectionData[],
+  umbrellaId: string,
+): NodeData[] {
+  const directChildren = activeNodes.filter(
+    (node) => node.id !== umbrellaId && (node.parentIds ?? []).includes(umbrellaId),
+  );
+
+  if (directChildren.length > 0) return directChildren;
+
+  // Fallback for legacy data where parentIds were never assigned.
+  const connectedIds = new Set<string>();
+  for (const connection of connections) {
+    if (connection.sourceId === umbrellaId) connectedIds.add(connection.targetId);
+    if (connection.targetId === umbrellaId) connectedIds.add(connection.sourceId);
+  }
+
+  return activeNodes.filter(
+    (node) => connectedIds.has(node.id) && node.id !== umbrellaId && node.kind !== 'umbrella',
+  );
+}
+
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [connections, setConnections] = useState<ConnectionData[]>([]);
@@ -54,7 +91,11 @@ function App() {
   const [showArchive, setShowArchive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isOverArchive, setIsOverArchive] = useState(false);
+  const [graphScope, setGraphScope] = useState<GraphScope>({ mode: 'main' });
+  const [transitionPhase, setTransitionPhase] = useState<GraphTransitionPhase>('idle');
+  const [transitionOrigin, setTransitionOrigin] = useState({ x: 0.5, y: 0.5 });
   const archiveZoneRef = useRef<HTMLButtonElement>(null);
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showDevDashboard, setShowDevDashboard] = useState(
     () => new URLSearchParams(window.location.search).get('dev') === '1',
   );
@@ -77,7 +118,6 @@ function App() {
     });
   }, [activePromptProfile, ensureDefaultPromptProfile]);
 
-  // Refs to access latest state without re-creating graphCallbacks
   const nodesRef = useRef<NodeData[]>(nodes);
   const connectionsRef = useRef<ConnectionData[]>(connections);
   useEffect(() => {
@@ -87,7 +127,12 @@ function App() {
     connectionsRef.current = connections;
   });
 
-  // Dev dashboard hotkey: Ctrl+Shift+D
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'D') {
@@ -99,7 +144,6 @@ function App() {
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  // Hydrate local state from Convex on initial load
   const hydrated = useRef(false);
   useEffect(() => {
     if (hydrated.current || savedThoughts === undefined) return;
@@ -139,7 +183,6 @@ function App() {
     }
   }, [savedThoughts]);
 
-  // -- Graph Callbacks for 2-phase AI extraction --
   const graphCallbacks: GraphCallbacks = useMemo(() => ({
     addNodes: (newNodes: NodeData[]) =>
       setNodes((prev) => [...prev, ...newNodes]),
@@ -172,7 +215,6 @@ function App() {
     const activeProfileId = activePromptProfile ? `${activePromptProfile.profileId}@${activePromptProfile.version}` : undefined;
     const inputHash = hashInput(result.rawText);
 
-    // Log the AI run and keep runId so thought rows can reference prompt profiles/reviews.
     const runId = await logAIRun(createAIRun, {
       dumpText: result.rawText,
       mode: 'apply',
@@ -196,7 +238,6 @@ function App() {
       },
     });
 
-    // Persist to Convex
     try {
       const newNodes = nodesRef.current.filter((n) => !n.thoughtId).slice(-result.nodeCount);
       const thoughtId = await createThought({
@@ -219,7 +260,6 @@ function App() {
       });
       const thoughtIdStr = thoughtId as string;
 
-      // Tag newly created nodes with thoughtId
       setNodes((prev) =>
         prev.map((n) =>
           !n.thoughtId && newNodes.some((rn) => rn.id === n.id)
@@ -228,7 +268,6 @@ function App() {
         ),
       );
 
-      // Persist connections that were added during Phase 2
       const newConnections = connectionsRef.current.slice(connectionsBefore);
       if (newConnections.length > 0) {
         addConnectionsMutation({
@@ -368,8 +407,6 @@ function App() {
     );
   }, []);
 
-  // --- Drag-to-archive ---
-
   const handleNodeDragMove = useCallback((_nodeId: string, screenX: number, screenY: number) => {
     setIsDragging(true);
     const el = archiveZoneRef.current;
@@ -401,24 +438,124 @@ function App() {
     }
   }, [handleArchiveNode]);
 
-  // --- View archived node ---
-
   const handleViewArchivedNode = useCallback((nodeId: string) => {
     setShowArchive(false);
     setTimeout(() => setDetailNodeId(nodeId), 280);
   }, []);
 
-  const activeNodes = nodes.filter((n) => !n.archived);
-  const archivedNodes = nodes.filter((n) => n.archived);
+  const activeNodes = useMemo(
+    () => nodes.filter((n) => !n.archived),
+    [nodes],
+  );
+  const archivedNodes = useMemo(
+    () => nodes.filter((n) => n.archived),
+    [nodes],
+  );
+
+  const mainNodes = useMemo(
+    () => getMainCanvasNodes(activeNodes),
+    [activeNodes],
+  );
+
+  const mainNodeIdSet = useMemo(
+    () => new Set(mainNodes.map((n) => n.id)),
+    [mainNodes],
+  );
+
+  const mainConnections = useMemo(
+    () => connections.filter((c) => mainNodeIdSet.has(c.sourceId) && mainNodeIdSet.has(c.targetId)),
+    [connections, mainNodeIdSet],
+  );
+
+  const immersiveUmbrella = useMemo(() => {
+    if (graphScope.mode !== 'immersive') return null;
+    return activeNodes.find((n) => n.id === graphScope.umbrellaId) ?? null;
+  }, [activeNodes, graphScope]);
+
+  const immersiveNodes = useMemo(() => {
+    if (graphScope.mode !== 'immersive') return [];
+    return getImmersiveNodes(activeNodes, connections, graphScope.umbrellaId);
+  }, [activeNodes, connections, graphScope]);
+
+  const immersiveNodeIdSet = useMemo(
+    () => new Set(immersiveNodes.map((n) => n.id)),
+    [immersiveNodes],
+  );
+
+  const immersiveConnections = useMemo(
+    () => connections.filter((c) => immersiveNodeIdSet.has(c.sourceId) && immersiveNodeIdSet.has(c.targetId)),
+    [connections, immersiveNodeIdSet],
+  );
+
+  const graphMode: GraphCanvasMode = graphScope.mode;
+  const canvasNodes = graphMode === 'main' ? mainNodes : immersiveNodes;
+  const canvasConnections = graphMode === 'main' ? mainConnections : immersiveConnections;
+
+  useEffect(() => {
+    if (graphScope.mode !== 'immersive') return;
+    if (immersiveUmbrella) return;
+    setGraphScope({ mode: 'main' });
+    setTransitionPhase('idle');
+  }, [graphScope.mode, immersiveUmbrella]);
+
+  const setTransitionTimer = useCallback((cb: () => void, delay: number) => {
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = setTimeout(() => {
+      transitionTimerRef.current = null;
+      cb();
+    }, delay);
+  }, []);
+
+  const handleEnterUmbrella = useCallback((umbrellaId: string, origin: { x: number; y: number }) => {
+    setDetailNodeId(null);
+    setTransitionOrigin(origin);
+    setTransitionPhase('entering');
+    setTransitionTimer(() => {
+      setGraphScope({ mode: 'immersive', umbrellaId });
+      setTransitionPhase('idle');
+    }, IMMERSION_ENTER_MS);
+  }, [setTransitionTimer]);
+
+  const handleExitImmersive = useCallback(() => {
+    if (graphScope.mode !== 'immersive') return;
+    setDetailNodeId(null);
+    setTransitionPhase('exiting');
+    setTransitionTimer(() => {
+      setGraphScope({ mode: 'main' });
+      setTransitionPhase('idle');
+    }, IMMERSION_EXIT_MS);
+  }, [graphScope.mode, setTransitionTimer]);
+
+  const handleGraphSingleClick = useCallback((nodeId: string, mode: GraphCanvasMode) => {
+    if (mode === 'immersive') {
+      setDetailNodeId(nodeId);
+    }
+  }, []);
+
+  const handleGraphDoubleClick = useCallback((nodeId: string, mode: GraphCanvasMode, origin: { x: number; y: number }) => {
+    if (mode === 'main') {
+      handleEnterUmbrella(nodeId, origin);
+      return;
+    }
+
+    setDetailNodeId(nodeId);
+  }, [handleEnterUmbrella]);
+
   const detailNode = detailNodeId ? nodes.find((n) => n.id === detailNodeId) ?? null : null;
 
   return (
     <>
       <GraphCanvas
-        nodes={activeNodes}
-        connections={connections}
+        mode={graphMode}
+        immersiveLabel={immersiveUmbrella?.label}
+        transitionPhase={transitionPhase}
+        transitionOrigin={transitionOrigin}
+        nodes={canvasNodes}
+        connections={canvasConnections}
         onNodeMove={handleNodeMove}
-        onNodeClick={setDetailNodeId}
+        onNodeSingleClick={handleGraphSingleClick}
+        onNodeDoubleClick={handleGraphDoubleClick}
+        onBackFromImmersive={graphMode === 'immersive' ? handleExitImmersive : undefined}
         onNodeDragMove={handleNodeDragMove}
         onNodeDrop={handleNodeDrop}
       />

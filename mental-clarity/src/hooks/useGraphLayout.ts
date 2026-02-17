@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ConnectionData, NodeData } from '@/types/graph';
+import { computeNodeRadius } from '@/components/features/GraphCanvas/Node/sizing';
 
 interface LayoutConfig {
   nodeRadius: number;
@@ -21,6 +22,7 @@ interface LayoutRequest {
     id: string;
     x: number;
     y: number;
+    radius: number;
     category?: string;
     pinned?: boolean;
   }>;
@@ -200,6 +202,7 @@ export function useGraphLayout({
         id: node.id,
         x: Number.isFinite(node.x) ? node.x : canvasWidth * 0.5,
         y: Number.isFinite(node.y) ? node.y : canvasHeight * 0.5,
+        radius: computeNodeRadius(node.label, node.kind),
         category: node.category,
         pinned: pinnedIdsRef.current.has(node.id),
       })),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
 import { EmptyState } from './EmptyState';
 import { Node } from './Node';
@@ -11,20 +11,43 @@ import styles from './GraphCanvas.module.css';
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 const CLICK_THRESHOLD_PX = 3;
+const DOUBLE_CLICK_MS = 250;
 const MOMENTUM_FRICTION = 0.92;
 const MOMENTUM_MIN_VELOCITY = 0.5;
 const DEFAULT_SPREAD = 420;
 
+export type GraphCanvasMode = 'main' | 'immersive';
+export type GraphTransitionPhase = 'idle' | 'entering' | 'exiting';
+
 interface GraphCanvasProps {
+  mode?: GraphCanvasMode;
+  immersiveLabel?: string;
+  transitionPhase?: GraphTransitionPhase;
+  transitionOrigin?: { x: number; y: number };
   nodes: NodeData[];
   connections?: ConnectionData[];
   onNodeMove: (id: string, x: number, y: number) => void;
-  onNodeClick?: (id: string) => void;
+  onNodeSingleClick?: (id: string, mode: GraphCanvasMode) => void;
+  onNodeDoubleClick?: (id: string, mode: GraphCanvasMode, origin: { x: number; y: number }) => void;
+  onBackFromImmersive?: () => void;
   onNodeDragMove?: (nodeId: string, screenX: number, screenY: number) => void;
   onNodeDrop?: (nodeId: string, screenX: number, screenY: number) => void;
 }
 
-export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop }: GraphCanvasProps) {
+export function GraphCanvas({
+  mode = 'main',
+  immersiveLabel,
+  transitionPhase = 'idle',
+  transitionOrigin,
+  nodes,
+  connections = [],
+  onNodeMove,
+  onNodeSingleClick,
+  onNodeDoubleClick,
+  onBackFromImmersive,
+  onNodeDragMove,
+  onNodeDrop,
+}: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -62,6 +85,8 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
   const lastMouse = useRef({ x: 0, y: 0, t: 0 });
   const velocity = useRef({ x: 0, y: 0 });
   const momentumRaf = useRef<number>(0);
+  const clickTimerRef = useRef<number | null>(null);
+  const lastClickRef = useRef<{ nodeId: string; at: number } | null>(null);
 
   const nodeDragState = useRef<{
     nodeId: string;
@@ -71,6 +96,12 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
     initialNodeY: number;
     didMove: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    setSelectedNodeId(null);
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
+  }, [mode]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -97,6 +128,49 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
     window.addEventListener('resize', updateCanvasSize);
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, []);
+
+  const resolveOrigin = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
+    const element = containerRef.current;
+    if (!element) return { x: 0.5, y: 0.5 };
+    const rect = element.getBoundingClientRect();
+    const x = (clientX - rect.left) / Math.max(rect.width, 1);
+    const y = (clientY - rect.top) / Math.max(rect.height, 1);
+    return {
+      x: Math.max(0, Math.min(1, x)),
+      y: Math.max(0, Math.min(1, y)),
+    };
+  }, []);
+
+  const queueSingleClick = useCallback((nodeId: string, now: number) => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+
+    lastClickRef.current = { nodeId, at: now };
+    clickTimerRef.current = window.setTimeout(() => {
+      onNodeSingleClick?.(nodeId, mode);
+      clickTimerRef.current = null;
+    }, DOUBLE_CLICK_MS + 10);
+  }, [mode, onNodeSingleClick]);
+
+  const handleNodeActivate = useCallback((nodeId: string, clientX: number, clientY: number) => {
+    const now = Date.now();
+    const last = lastClickRef.current;
+    setSelectedNodeId(nodeId);
+
+    if (last && last.nodeId === nodeId && now - last.at <= DOUBLE_CLICK_MS) {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      lastClickRef.current = null;
+      onNodeDoubleClick?.(nodeId, mode, resolveOrigin(clientX, clientY));
+      return;
+    }
+
+    queueSingleClick(nodeId, now);
+  }, [mode, onNodeDoubleClick, queueSingleClick, resolveOrigin]);
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
@@ -180,6 +254,9 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
   useEffect(() => {
     return () => {
       if (momentumRaf.current) cancelAnimationFrame(momentumRaf.current);
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
     };
   }, []);
 
@@ -235,6 +312,11 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       const node = nodes.find((candidate) => candidate.id === nodeId);
       if (!node) return;
 
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+
       nodeDragState.current = {
         nodeId,
         initialMouseX: event.clientX,
@@ -278,8 +360,8 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
           pinNode(state.nodeId);
           onNodeDrop?.(state.nodeId, event.clientX, event.clientY);
         } else {
-          setSelectedNodeId(state.nodeId);
-          onNodeClick?.(state.nodeId);
+          didPanDrag.current = true;
+          handleNodeActivate(state.nodeId, event.clientX, event.clientY);
         }
       }
 
@@ -294,20 +376,29 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop, pinNode, setLayoutDragging]);
+  }, [zoom, onNodeMove, onNodeDragMove, onNodeDrop, pinNode, setLayoutDragging, handleNodeActivate]);
 
   const stopCanvasPropagation = useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
 
   const hasNodes = nodes.length > 0;
+  const dynamicOrigin = useMemo(
+    () => ({
+      '--immersion-origin-x': `${((transitionOrigin?.x ?? 0.5) * 100).toFixed(2)}%`,
+      '--immersion-origin-y': `${((transitionOrigin?.y ?? 0.5) * 100).toFixed(2)}%`,
+    }) as React.CSSProperties,
+    [transitionOrigin],
+  );
 
   return (
     <div
       ref={containerRef}
+      style={dynamicOrigin}
       className={cn(
         'bg-dot-grid',
         styles.container,
+        mode === 'immersive' && styles.immersive,
         (isPanning || hasMomentum) && !draggingNodeId && styles.panning,
         draggingNodeId && styles.draggingNode,
       )}
@@ -317,6 +408,19 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       onMouseLeave={handleMouseUp}
       onClick={handleCanvasClick}
     >
+      {mode === 'immersive' && (
+        <div
+          className={styles.scopeHud}
+          onMouseDown={stopCanvasPropagation}
+          onClick={stopCanvasPropagation}
+        >
+          <button type="button" className={styles.backButton} onClick={onBackFromImmersive}>
+            Back
+          </button>
+          <span className={styles.scopeLabel}>{immersiveLabel ?? 'Immersive view'}</span>
+        </div>
+      )}
+
       <div
         className={styles.layoutControls}
         onMouseDown={stopCanvasPropagation}
@@ -338,7 +442,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
             className={styles.slider}
             type="range"
             min={120}
-            max={700}
+            max={780}
             step={10}
             value={layoutSpread}
             onChange={(event) => setLayoutSpread(Number(event.target.value))}
@@ -367,16 +471,24 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
           transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
         }}
       >
-        <ConnectionsLayer connections={connections} nodes={nodes} />
-        {nodes.map((node) => (
-          <Node
-            key={node.id}
-            {...node}
-            isSelected={node.id === selectedNodeId}
-            isDragging={node.id === draggingNodeId}
-            onDragStart={handleNodeDragStart}
-          />
-        ))}
+        <div
+          className={cn(
+            styles.surfaceMotion,
+            transitionPhase === 'entering' && styles.enteringImmersion,
+            transitionPhase === 'exiting' && styles.exitingImmersion,
+          )}
+        >
+          <ConnectionsLayer connections={connections} nodes={nodes} />
+          {nodes.map((node) => (
+            <Node
+              key={node.id}
+              {...node}
+              isSelected={node.id === selectedNodeId}
+              isDragging={node.id === draggingNodeId}
+              onDragStart={handleNodeDragStart}
+            />
+          ))}
+        </div>
       </div>
 
       <div className={cn(styles.emptyStateWrapper, hasNodes && styles.hidden)}>
