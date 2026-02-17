@@ -6,23 +6,31 @@ import type {
   ExtractedTask,
 } from '@/types/graph';
 import { ollamaGenerate } from './ollamaClient';
+import type { OllamaMetrics } from './ollamaClient';
 import { promptB_NodeMatching, promptC_Relationships, promptD_Tasks } from './prompts';
 import { parseNodeMatchResponse, parseRelationshipResponse, parseTaskResponse } from './schemas';
 import type { StatusCallback } from './extractionService';
 
 export interface RefinementResult {
-  /** Nodes whose parentIds/kind changed, keyed by id */
   nodeUpdates: Map<string, Partial<NodeData>>;
-  /** New connections to add */
   connections: ConnectionData[];
-  /** Pages to create/update */
   pages: PageData[];
-  /** Extracted tasks */
   tasks: ExtractedTask[];
-  /** Node IDs to merge (new -> existing) */
   merges: Map<string, string>;
-  /** Timing for analytics */
   timings: { matchingMs: number; relationshipsMs: number; tasksMs: number };
+  promptMetrics: {
+    promptB?: OllamaMetrics;
+    promptC?: OllamaMetrics;
+    promptD?: OllamaMetrics;
+  };
+}
+
+function logPromptMetrics(name: string, metrics: OllamaMetrics) {
+  console.log(
+    `%c[AI] ${name}%c  ${metrics.evalTokens} tokens  ${metrics.tokensPerSec.toFixed(1)} tok/s  TTFT ${metrics.timeToFirstTokenMs.toFixed(0)}ms  eval ${(metrics.evalDurationMs / 1000).toFixed(1)}s  total ${(metrics.totalDurationMs / 1000).toFixed(1)}s  prompt ${metrics.promptTokens} tokens`,
+    'color: #A8C5D1; font-weight: bold',
+    'color: inherit',
+  );
 }
 
 export async function refineGraph(
@@ -39,15 +47,15 @@ export async function refineGraph(
     tasks: [],
     merges: new Map(),
     timings: { matchingMs: 0, relationshipsMs: 0, tasksMs: 0 },
+    promptMetrics: {},
   };
 
   const allNodes = [...existingNodes, ...newNodes];
   const now = Date.now();
 
-  // Run B + C + D in parallel
   const matchingStart = Date.now();
   const [matchResult, connResult, taskResult] = await Promise.allSettled([
-    // Prompt B: Node Matching + Multi-Parent
+    // Prompt B: Node Matching
     (async () => {
       onStatus?.('refining-hierarchy');
       const existingSlim = existingNodes.map((n) => ({
@@ -59,9 +67,11 @@ export async function refineGraph(
         label: n.label,
         kind: n.kind ?? 'subnode',
       }));
-      const raw = await ollamaGenerate(
+      const { text: raw, metrics } = await ollamaGenerate(
         promptB_NodeMatching(dumpText, newSlim, existingSlim),
       );
+      logPromptMetrics('Prompt B (Matching)', metrics);
+      result.promptMetrics.promptB = metrics;
       return parseNodeMatchResponse(raw);
     })(),
 
@@ -69,9 +79,11 @@ export async function refineGraph(
     (async () => {
       onStatus?.('finding-connections');
       const nodeSlim = allNodes.map((n) => ({ id: n.id, label: n.label }));
-      const raw = await ollamaGenerate(
+      const { text: raw, metrics } = await ollamaGenerate(
         promptC_Relationships(dumpText, nodeSlim),
       );
+      logPromptMetrics('Prompt C (Relationships)', metrics);
+      result.promptMetrics.promptC = metrics;
       return parseRelationshipResponse(
         raw,
         allNodes.map((n) => n.label),
@@ -82,9 +94,11 @@ export async function refineGraph(
     (async () => {
       onStatus?.('extracting-tasks');
       const topicLabels = allNodes.map((n) => n.label);
-      const raw = await ollamaGenerate(
+      const { text: raw, metrics } = await ollamaGenerate(
         promptD_Tasks(dumpText, topicLabels),
       );
+      logPromptMetrics('Prompt D (Tasks)', metrics);
+      result.promptMetrics.promptD = metrics;
       return parseTaskResponse(raw);
     })(),
   ]);
@@ -100,12 +114,10 @@ export async function refineGraph(
       );
       if (!node) continue;
 
-      // If there's a match to an existing node, merge
       if (t.match && t.match.similarity >= 0.75) {
         result.merges.set(node.id, t.match.existingNodeId);
       }
 
-      // Update parentIds from Prompt B
       if (t.parents.length > 0) {
         const parentIds = t.parents
           .map((p) => p.parentId)
@@ -115,7 +127,6 @@ export async function refineGraph(
           result.nodeUpdates.set(node.id, { parentIds });
         }
 
-        // Create page with context segments
         const pageId = crypto.randomUUID();
         const contexts: PageContext[] = t.parents.map((p) => {
           const parentNode = allNodes.find((n) => n.id === p.parentId);
@@ -178,7 +189,7 @@ export async function refineGraph(
     console.warn('[AI] Prompt C failed:', connResult.reason);
   }
 
-  // Process Prompt D results (tasks)
+  // Process Prompt D results
   if (taskResult.status === 'fulfilled') {
     result.timings.tasksMs = Date.now() - matchingStart;
     result.tasks = taskResult.value.tasks;

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
+import type { StreamProgress } from '@/services/ai/ollamaClient';
 import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, ExtractedTask } from '@/types/graph';
 
 export interface AIRunResult {
@@ -28,20 +29,24 @@ interface UseAIExtractionReturn {
   submit: (text: string) => Promise<AIRunResult | null>;
   status: AIServiceStatus;
   isProcessing: boolean;
+  /** Live streaming progress (tokens, tokens/sec, elapsed) */
+  streamProgress: StreamProgress | null;
 }
 
 export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionReturn {
   const [status, setStatus] = useState<AIServiceStatus>('idle');
+  const [streamProgress, setStreamProgress] = useState<StreamProgress | null>(null);
   const activeRef = useRef(false);
 
   const submit = useCallback(async (text: string): Promise<AIRunResult | null> => {
     if (activeRef.current) return null;
     activeRef.current = true;
     const startedAt = Date.now();
+    setStreamProgress(null);
 
     try {
-      // -- Phase 1: Fast topic extraction --
-      const phase1 = await extractTopics(text, setStatus);
+      // -- Phase 1: Fast topic extraction (with stream progress) --
+      const phase1 = await extractTopics(text, setStatus, setStreamProgress);
       if (!phase1) {
         activeRef.current = false;
         return null;
@@ -50,6 +55,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
       // Immediately render nodes on canvas
       callbacks.addNodes(phase1.nodes);
       callbacks.addDump(phase1.dump);
+      setStreamProgress(null);
 
       let totalConnections = 0;
       let refinementTimings = { matchingMs: 0, relationshipsMs: 0 };
@@ -72,7 +78,6 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
 
           refinementTimings = refinement.timings;
 
-          // Apply progressive updates
           if (refinement.nodeUpdates.size > 0) {
             callbacks.updateNodes(refinement.nodeUpdates);
           }
@@ -95,6 +100,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
       }
 
       setStatus('idle');
+      setStreamProgress(null);
       const finishedAt = Date.now();
 
       return {
@@ -112,12 +118,13 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
             relationshipsMs: refinementTimings.relationshipsMs,
           },
           graphDensity: totalConnections / Math.max(phase1.nodes.length, 1),
-          avgStrength: 0, // Will be calculated from actual connections
+          avgStrength: 0,
         },
       };
     } catch (err) {
       console.error('[useAIExtraction]', err);
       setStatus('error');
+      setStreamProgress(null);
       setTimeout(() => setStatus('idle'), 2000);
       return null;
     } finally {
@@ -127,5 +134,5 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
 
   const isProcessing = status !== 'idle' && status !== 'error' && status !== 'unavailable';
 
-  return { submit, status, isProcessing };
+  return { submit, status, isProcessing, streamProgress };
 }

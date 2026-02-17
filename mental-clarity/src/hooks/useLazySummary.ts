@@ -31,7 +31,7 @@ export function useLazySummary(
       const healthy = await ollamaHealthCheck();
       if (!healthy) return;
 
-      const raw = await ollamaGenerate(promptE_Summary(allSegments, nodeLabel));
+      const { text: raw } = await ollamaGenerate(promptE_Summary(allSegments, nodeLabel));
       const parsed = JSON.parse(raw);
       const text = typeof parsed.summary === 'string' ? parsed.summary : null;
 

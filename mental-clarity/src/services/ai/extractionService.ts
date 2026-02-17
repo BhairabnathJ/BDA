@@ -4,6 +4,7 @@ import type {
   AIServiceStatus,
 } from '@/types/graph';
 import { ollamaGenerate, ollamaHealthCheck } from './ollamaClient';
+import type { OllamaMetrics, OnStreamProgress } from './ollamaClient';
 import { promptA_TopicHierarchy } from './prompts';
 import { parseTopicResponse } from './schemas';
 import { fallbackExtract } from './fallback';
@@ -15,18 +16,26 @@ const MAX_INPUT_LENGTH = 3000;
 export interface Phase1Result {
   nodes: NodeData[];
   dump: DumpData;
-  /** Whether AI was used or fallback was triggered */
   aiStatus: 'success' | 'fallback' | 'error';
   errorMessage?: string;
-  /** Time spent on topic extraction */
   entitiesMs: number;
+  promptMetrics?: OllamaMetrics;
 }
 
 export type StatusCallback = (status: AIServiceStatus) => void;
 
+function logPromptMetrics(name: string, metrics: OllamaMetrics) {
+  console.log(
+    `%c[AI] ${name}%c  ${metrics.evalTokens} tokens  ${metrics.tokensPerSec.toFixed(1)} tok/s  TTFT ${metrics.timeToFirstTokenMs.toFixed(0)}ms  eval ${(metrics.evalDurationMs / 1000).toFixed(1)}s  total ${(metrics.totalDurationMs / 1000).toFixed(1)}s  prompt ${metrics.promptTokens} tokens`,
+    'color: #A8C5D1; font-weight: bold',
+    'color: inherit',
+  );
+}
+
 export async function extractTopics(
   text: string,
   onStatus?: StatusCallback,
+  onProgress?: OnStreamProgress,
 ): Promise<Phase1Result | null> {
   const trimmed = text.trim();
   if (trimmed.length < MIN_INPUT_LENGTH) return null;
@@ -53,7 +62,12 @@ export async function extractTopics(
   const entitiesStart = Date.now();
 
   try {
-    const raw = await ollamaGenerate(promptA_TopicHierarchy(input));
+    const { text: raw, metrics } = await ollamaGenerate(
+      promptA_TopicHierarchy(input),
+      onProgress,
+    );
+    logPromptMetrics('Prompt A (Topics)', metrics);
+
     const { topics } = parseTopicResponse(raw);
     const entitiesMs = Date.now() - entitiesStart;
 
@@ -67,7 +81,6 @@ export async function extractTopics(
     const umbrellaAngleStep = (2 * Math.PI) / Math.max(umbrellas.length, 1);
     const umbrellaRadius = Math.min(250, 80 * umbrellas.length);
 
-    // Create umbrella nodes
     const nodes: NodeData[] = umbrellas.map((t, i) => ({
       id: crypto.randomUUID(),
       label: t.label,
@@ -82,10 +95,8 @@ export async function extractTopics(
       updatedAt: now,
     }));
 
-    // Build label -> id map for parent resolution
     const labelToId = new Map(nodes.map((n) => [n.label.toLowerCase(), n.id]));
 
-    // Create subnode nodes positioned near their parent
     for (const sub of subnodes) {
       const parentId = sub.parentLabel
         ? labelToId.get(sub.parentLabel.toLowerCase())
@@ -115,7 +126,6 @@ export async function extractTopics(
       });
     }
 
-    // If no umbrella/subnode distinction, flat circle layout
     if (umbrellas.length === 0 && subnodes.length === 0) {
       const nodeCount = topics.length;
       const radius = Math.min(200, 60 * nodeCount);
@@ -140,7 +150,7 @@ export async function extractTopics(
       }
     }
 
-    return { nodes, dump, aiStatus: 'success', entitiesMs };
+    return { nodes, dump, aiStatus: 'success', entitiesMs, promptMetrics: metrics };
   } catch (err) {
     console.warn('[AI] Prompt A failed, using fallback:', err);
     onStatus?.('error');
