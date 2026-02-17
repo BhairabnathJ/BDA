@@ -13,7 +13,7 @@ const MAX_ZOOM = 4;
 const CLICK_THRESHOLD_PX = 3;
 const MOMENTUM_FRICTION = 0.92;
 const MOMENTUM_MIN_VELOCITY = 0.5;
-const DEFAULT_SPREAD = 300;
+const DEFAULT_SPREAD = 420;
 
 interface GraphCanvasProps {
   nodes: NodeData[];

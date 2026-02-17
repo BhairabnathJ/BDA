@@ -41,12 +41,13 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   const handleMouseEnter = useCallback((conn: ConnectionData, mx: number, my: number) => {
+    const strength = Number.isFinite(conn.strength) ? conn.strength : 0.5;
     setTooltip({
       x: mx,
       y: my - 16,
       label: conn.label || 'connected',
       type: conn.type,
-      strength: conn.strength,
+      strength,
     });
   }, []);
 
@@ -65,9 +66,18 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
         const source = nodeMap.get(conn.sourceId);
         const target = nodeMap.get(conn.targetId);
         if (!source || !target) return null;
+        if (
+          !Number.isFinite(source.x) ||
+          !Number.isFinite(source.y) ||
+          !Number.isFinite(target.x) ||
+          !Number.isFinite(target.y)
+        ) {
+          return null;
+        }
 
-        const opacity = 0.4 + conn.strength * 0.4;
-        const strokeWidth = 1.5 + conn.strength * 1.5;
+        const strength = Number.isFinite(conn.strength) ? conn.strength : 0.5;
+        const opacity = 0.4 + strength * 0.4;
+        const strokeWidth = 1.5 + strength * 1.5;
         const dashArray = getDashArray(conn.type);
 
         const mx = (source.x + target.x) / 2;

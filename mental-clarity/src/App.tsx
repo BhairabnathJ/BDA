@@ -27,6 +27,21 @@ interface ActivePromptProfile {
   };
 }
 
+function sanitizeNodeCoordinates(node: NodeData, index: number, total: number): NodeData {
+  const width = typeof window === 'undefined' ? 1200 : window.innerWidth;
+  const height = typeof window === 'undefined' ? 800 : window.innerHeight;
+  const angle = (index / Math.max(total, 1)) * Math.PI * 2;
+  const radius = Math.min(Math.max(220, total * 16), 900);
+  const fallbackX = width * 0.5 + Math.cos(angle) * radius;
+  const fallbackY = height * 0.5 + Math.sin(angle) * radius;
+
+  return {
+    ...node,
+    x: Number.isFinite(node.x) ? node.x : fallbackX,
+    y: Number.isFinite(node.y) ? node.y : fallbackY,
+  };
+}
+
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [connections, setConnections] = useState<ConnectionData[]>([]);
@@ -90,7 +105,7 @@ function App() {
     if (hydrated.current || savedThoughts === undefined) return;
     hydrated.current = true;
 
-    const allNodes: NodeData[] = [];
+    const rawNodes: NodeData[] = [];
     const allConnections: ConnectionData[] = [];
     const seenNodeIds = new Set<string>();
 
@@ -99,7 +114,7 @@ function App() {
       for (const node of thought.nodes as NodeData[]) {
         if (!seenNodeIds.has(node.id)) {
           seenNodeIds.add(node.id);
-          allNodes.push({ ...node, thoughtId });
+          rawNodes.push({ ...node, thoughtId });
         }
       }
       for (const conn of thought.connections as ConnectionData[]) {
@@ -107,10 +122,20 @@ function App() {
       }
     }
 
-    if (allNodes.length > 0) {
+    if (rawNodes.length > 0) {
+      let sanitizedCount = 0;
+      const allNodes = rawNodes.map((node, index, arr) => {
+        const sanitized = sanitizeNodeCoordinates(node, index, arr.length);
+        if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) sanitizedCount += 1;
+        return sanitized;
+      });
+
       setNodes(allNodes);
       setConnections(allConnections);
       console.log(`[Convex] Hydrated ${allNodes.length} node(s), ${allConnections.length} connection(s)`);
+      if (sanitizedCount > 0) {
+        console.warn(`[Convex] Sanitized ${sanitizedCount} node coordinate(s) with invalid x/y values`);
+      }
     }
   }, [savedThoughts]);
 
@@ -247,6 +272,7 @@ function App() {
   }, [submit, activePromptProfile, createAIRun]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     setNodes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, x, y } : n)),
     );
