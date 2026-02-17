@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import type { AIRunMeta } from '@/types/graph';
+import type { AIRunMeta, PromptMetricsSummary } from '@/types/graph';
 
 interface AIRunDoc {
   _id: string;
@@ -41,8 +41,21 @@ function exportCSV(runs: AIRunDoc[]): void {
     'model',
     'entitiesMs',
     'relationshipsMs',
+    'tasksMs',
+    'promptA_tokens',
+    'promptA_tokPerSec',
+    'promptA_ttft',
+    'promptB_tokens',
+    'promptB_tokPerSec',
+    'promptC_tokens',
+    'promptC_tokPerSec',
+    'promptD_tokens',
+    'promptD_tokPerSec',
     'errorMessage',
   ];
+
+  const pm = (r: AIRunDoc, key: 'promptA' | 'promptB' | 'promptC' | 'promptD') =>
+    r.meta?.promptMetrics?.[key];
 
   const rows = runs.map((r) => [
     new Date(r.finishedAt).toISOString(),
@@ -56,6 +69,16 @@ function exportCSV(runs: AIRunDoc[]): void {
     r.model,
     r.meta?.timings?.entitiesMs ?? '',
     r.meta?.timings?.relationshipsMs ?? '',
+    r.meta?.timings?.tasksMs ?? '',
+    pm(r, 'promptA')?.evalTokens ?? '',
+    pm(r, 'promptA')?.tokensPerSec?.toFixed(1) ?? '',
+    pm(r, 'promptA')?.timeToFirstTokenMs?.toFixed(0) ?? '',
+    pm(r, 'promptB')?.evalTokens ?? '',
+    pm(r, 'promptB')?.tokensPerSec?.toFixed(1) ?? '',
+    pm(r, 'promptC')?.evalTokens ?? '',
+    pm(r, 'promptC')?.tokensPerSec?.toFixed(1) ?? '',
+    pm(r, 'promptD')?.evalTokens ?? '',
+    pm(r, 'promptD')?.tokensPerSec?.toFixed(1) ?? '',
     r.errorMessage ?? '',
   ]);
 
@@ -137,10 +160,63 @@ function MiniChart({ runs, yKey }: { runs: AIRunDoc[]; yKey: 'durationMs' | 'nod
   );
 }
 
+const thStyle: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '8px 10px',
+  fontWeight: 600,
+  color: 'var(--color-text-secondary)',
+  fontSize: 11,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  whiteSpace: 'nowrap',
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+function PromptMetricCard({ label, metrics }: { label: string; metrics?: PromptMetricsSummary }) {
+  if (!metrics) return null;
+  return (
+    <div style={{
+      background: 'rgba(168,197,209,0.06)',
+      border: '1px solid rgba(168,197,209,0.12)',
+      borderRadius: 6,
+      padding: '8px 12px',
+      minWidth: 140,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary-dark)', marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 12px', fontSize: 11 }}>
+        <span style={{ color: 'var(--color-text-disabled)' }}>Tokens</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{metrics.evalTokens}</span>
+        <span style={{ color: 'var(--color-text-disabled)' }}>Prompt</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{metrics.promptTokens}</span>
+        <span style={{ color: 'var(--color-text-disabled)' }}>tok/s</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>{metrics.tokensPerSec.toFixed(1)}</span>
+        <span style={{ color: 'var(--color-text-disabled)' }}>TTFT</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{metrics.timeToFirstTokenMs.toFixed(0)}ms</span>
+        <span style={{ color: 'var(--color-text-disabled)' }}>Eval</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{(metrics.evalDurationMs / 1000).toFixed(1)}s</span>
+        <span style={{ color: 'var(--color-text-disabled)' }}>Total</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{(metrics.totalDurationMs / 1000).toFixed(1)}s</span>
+      </div>
+    </div>
+  );
+}
+
+const COLUMN_HEADERS = [
+  '', 'Finished At', 'Duration', 'Nodes', 'Conns', 'Status',
+  'tok/s (A)', 'Tokens', 'Entities', 'Relations', 'Tasks', 'Model',
+];
+
 export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
   const rawRuns = useQuery(api.aiRuns.listRuns, { limit: 200 });
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const runs = useMemo(() => {
     if (!rawRuns) return [];
@@ -287,60 +363,101 @@ export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
             }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid rgba(168,197,209,0.2)' }}>
-                  {['Finished At', 'Duration', 'Nodes', 'Connections', 'Status', 'Density', 'Avg Strength', 'Entities (ms)', 'Relationships (ms)', 'Model'].map((h) => (
-                    <th key={h} style={{
-                      textAlign: 'left',
-                      padding: '8px 10px',
-                      fontWeight: 600,
-                      color: 'var(--color-text-secondary)',
-                      fontSize: 11,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {h}
-                    </th>
+                  {COLUMN_HEADERS.map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {runs.map((run) => (
-                  <tr
-                    key={run._id}
-                    style={{ borderBottom: '1px solid rgba(168,197,209,0.1)' }}
-                  >
-                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{formatDate(run.finishedAt)}</td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.durationMs}ms</td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.nodeCount}</td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.connectionCount}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span style={{
-                        display: 'inline-block',
-                        padding: '2px 8px',
-                        borderRadius: 10,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        background: run.aiStatus === 'success'
-                          ? 'rgba(127, 184, 159, 0.15)'
-                          : run.aiStatus === 'fallback'
-                          ? 'rgba(212, 168, 127, 0.15)'
-                          : 'rgba(197, 143, 143, 0.15)',
-                        color: run.aiStatus === 'success'
-                          ? 'var(--color-success)'
-                          : run.aiStatus === 'fallback'
-                          ? 'var(--color-warning)'
-                          : 'var(--color-error)',
-                      }}>
-                        {run.aiStatus}
-                      </span>
-                    </td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.meta?.graphDensity ?? '-'}</td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.meta?.avgStrength ?? '-'}</td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.meta?.timings?.entitiesMs ?? '-'}</td>
-                    <td style={{ padding: '8px 10px', fontVariantNumeric: 'tabular-nums' }}>{run.meta?.timings?.relationshipsMs ?? '-'}</td>
-                    <td style={{ padding: '8px 10px', fontSize: 11, color: 'var(--color-text-disabled)' }}>{run.model}</td>
-                  </tr>
-                ))}
+                {runs.map((run) => {
+                  const isExpanded = expandedId === run._id;
+                  const pm = run.meta?.promptMetrics;
+                  const totalTokens = (pm?.promptA?.evalTokens ?? 0) +
+                    (pm?.promptB?.evalTokens ?? 0) +
+                    (pm?.promptC?.evalTokens ?? 0) +
+                    (pm?.promptD?.evalTokens ?? 0);
+
+                  return (
+                    <>
+                      <tr
+                        key={run._id}
+                        onClick={() => setExpandedId(isExpanded ? null : run._id)}
+                        style={{
+                          borderBottom: isExpanded ? 'none' : '1px solid rgba(168,197,209,0.1)',
+                          cursor: 'pointer',
+                          background: isExpanded ? 'rgba(168,197,209,0.04)' : undefined,
+                        }}
+                      >
+                        <td style={{ ...tdStyle, width: 20, fontSize: 10, color: 'var(--color-text-disabled)' }}>
+                          {isExpanded ? '\u25BC' : '\u25B6'}
+                        </td>
+                        <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDate(run.finishedAt)}</td>
+                        <td style={tdStyle}>{run.durationMs}ms</td>
+                        <td style={tdStyle}>{run.nodeCount}</td>
+                        <td style={tdStyle}>{run.connectionCount}</td>
+                        <td style={tdStyle}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            fontSize: 11,
+                            fontWeight: 500,
+                            background: run.aiStatus === 'success'
+                              ? 'rgba(127, 184, 159, 0.15)'
+                              : run.aiStatus === 'fallback'
+                              ? 'rgba(212, 168, 127, 0.15)'
+                              : 'rgba(197, 143, 143, 0.15)',
+                            color: run.aiStatus === 'success'
+                              ? 'var(--color-success)'
+                              : run.aiStatus === 'fallback'
+                              ? 'var(--color-warning)'
+                              : 'var(--color-error)',
+                          }}>
+                            {run.aiStatus}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 500 }}>
+                          {pm?.promptA?.tokensPerSec ? `${pm.promptA.tokensPerSec.toFixed(1)}` : '-'}
+                        </td>
+                        <td style={tdStyle}>
+                          {totalTokens > 0 ? totalTokens : '-'}
+                        </td>
+                        <td style={tdStyle}>{run.meta?.timings?.entitiesMs ?? '-'}</td>
+                        <td style={tdStyle}>{run.meta?.timings?.relationshipsMs ?? '-'}</td>
+                        <td style={tdStyle}>{run.meta?.timings?.tasksMs ?? '-'}</td>
+                        <td style={{ ...tdStyle, fontSize: 11, color: 'var(--color-text-disabled)' }}>{run.model}</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr key={`${run._id}-detail`} style={{ borderBottom: '1px solid rgba(168,197,209,0.1)' }}>
+                          <td colSpan={COLUMN_HEADERS.length} style={{ padding: '8px 10px 16px 30px', background: 'rgba(168,197,209,0.04)' }}>
+                            {pm && (pm.promptA || pm.promptB || pm.promptC || pm.promptD) ? (
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                  Per-Prompt LLM Metrics
+                                </div>
+                                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                                  <PromptMetricCard label="A: Topics" metrics={pm.promptA} />
+                                  <PromptMetricCard label="B: Matching" metrics={pm.promptB} />
+                                  <PromptMetricCard label="C: Relations" metrics={pm.promptC} />
+                                  <PromptMetricCard label="D: Tasks" metrics={pm.promptD} />
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 11, color: 'var(--color-text-disabled)' }}>
+                                No per-prompt metrics available for this run.
+                              </div>
+                            )}
+                            {run.errorMessage && (
+                              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-error)' }}>
+                                Error: {run.errorMessage}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
               </tbody>
             </table>
           </div>

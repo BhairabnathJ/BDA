@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
-import type { StreamProgress } from '@/services/ai/ollamaClient';
-import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, ExtractedTask } from '@/types/graph';
+import type { OllamaMetrics, StreamProgress } from '@/services/ai/ollamaClient';
+import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask } from '@/types/graph';
 
 export interface AIRunResult {
   rawText: string;
@@ -33,6 +33,17 @@ interface UseAIExtractionReturn {
   streamProgress: StreamProgress | null;
 }
 
+function toSummary(m: OllamaMetrics): PromptMetricsSummary {
+  return {
+    evalTokens: m.evalTokens,
+    promptTokens: m.promptTokens,
+    tokensPerSec: m.tokensPerSec,
+    timeToFirstTokenMs: m.timeToFirstTokenMs,
+    evalDurationMs: m.evalDurationMs,
+    totalDurationMs: m.totalDurationMs,
+  };
+}
+
 export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionReturn {
   const [status, setStatus] = useState<AIServiceStatus>('idle');
   const [streamProgress, setStreamProgress] = useState<StreamProgress | null>(null);
@@ -58,7 +69,8 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
       setStreamProgress(null);
 
       let totalConnections = 0;
-      let refinementTimings = { matchingMs: 0, relationshipsMs: 0 };
+      let refinementTimings = { matchingMs: 0, relationshipsMs: 0, tasksMs: 0 };
+      let refinementPromptMetrics: { promptB?: OllamaMetrics; promptC?: OllamaMetrics; promptD?: OllamaMetrics } = {};
       const finalStatus = phase1.aiStatus;
       const finalError = phase1.errorMessage;
 
@@ -77,6 +89,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
           );
 
           refinementTimings = refinement.timings;
+          refinementPromptMetrics = refinement.promptMetrics;
 
           if (refinement.nodeUpdates.size > 0) {
             callbacks.updateNodes(refinement.nodeUpdates);
@@ -116,9 +129,16 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
             entitiesMs: phase1.entitiesMs,
             hierarchyMs: refinementTimings.matchingMs,
             relationshipsMs: refinementTimings.relationshipsMs,
+            tasksMs: refinementTimings.tasksMs,
           },
           graphDensity: totalConnections / Math.max(phase1.nodes.length, 1),
           avgStrength: 0,
+          promptMetrics: {
+            promptA: phase1.promptMetrics ? toSummary(phase1.promptMetrics) : undefined,
+            promptB: refinementPromptMetrics.promptB ? toSummary(refinementPromptMetrics.promptB) : undefined,
+            promptC: refinementPromptMetrics.promptC ? toSummary(refinementPromptMetrics.promptC) : undefined,
+            promptD: refinementPromptMetrics.promptD ? toSummary(refinementPromptMetrics.promptD) : undefined,
+          },
         },
       };
     } catch (err) {
