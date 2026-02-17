@@ -12,6 +12,12 @@ export default defineSchema({
     dumpText: v.string(),
     model: v.string(),
     promptVersion: v.string(),
+    promptProfileId: v.optional(v.string()),
+    inputHash: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    mode: v.optional(v.string()),
+    backend: v.optional(v.string()),
+    quant: v.optional(v.string()),
     startedAt: v.number(),
     finishedAt: v.number(),
     durationMs: v.number(),
@@ -20,5 +26,12 @@ export default defineSchema({
     aiStatus: v.string(),
     errorMessage: v.optional(v.string()),
     meta: v.optional(v.any()),
+    artifacts: v.optional(v.any()),
+    quality: v.optional(
+      v.object({
+        score: v.optional(v.number()),
+        note: v.optional(v.string()),
+      }),
+    ),
   }),
 });
