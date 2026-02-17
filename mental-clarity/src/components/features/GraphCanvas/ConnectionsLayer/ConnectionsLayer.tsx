@@ -66,8 +66,8 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
         const target = nodeMap.get(conn.targetId);
         if (!source || !target) return null;
 
-        const opacity = 0.25 + conn.strength * 0.55;
-        const strokeWidth = 1 + conn.strength * 1.5;
+        const opacity = 0.4 + conn.strength * 0.4;
+        const strokeWidth = 1.5 + conn.strength * 1.5;
         const dashArray = getDashArray(conn.type);
 
         const mx = (source.x + target.x) / 2;

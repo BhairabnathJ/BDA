@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
 import type { NodeData, EdgeData } from '../Node';
-import type { PageData, ExtractedTask } from '@/types/graph';
+import type { ConnectionData, PageData, ExtractedTask } from '@/types/graph';
 import { PanelHeader } from './PanelHeader';
 import { RichTextEditor } from './RichTextEditor';
 import { ConnectionsSection } from './ConnectionsSection';
@@ -12,6 +12,7 @@ interface NodeDetailPanelProps {
   node: NodeData;
   nodes: NodeData[];
   edges: EdgeData[];
+  connections?: ConnectionData[];
   pages?: PageData[];
   tasks?: ExtractedTask[];
   onUpdate: (id: string, updates: Partial<Pick<NodeData, 'label' | 'content'>>) => void;
@@ -27,6 +28,7 @@ export function NodeDetailPanel({
   node,
   nodes,
   edges,
+  connections = [],
   pages = [],
   tasks = [],
   onUpdate,
@@ -142,6 +144,7 @@ export function NodeDetailPanel({
             currentNodeId={node.id}
             nodes={nodes}
             edges={edges}
+            connections={connections}
             onAddEdge={onAddEdge}
             onRemoveEdge={onRemoveEdge}
             onNavigate={onNavigate}

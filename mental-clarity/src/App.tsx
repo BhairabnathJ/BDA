@@ -333,6 +333,7 @@ function App() {
           node={detailNode}
           nodes={activeNodes}
           edges={edges}
+          connections={connections}
           pages={pages}
           tasks={tasks}
           onUpdate={handleUpdateNode}

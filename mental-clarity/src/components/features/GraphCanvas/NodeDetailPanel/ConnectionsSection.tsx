@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { NodeData, EdgeData } from '../Node';
+import type { ConnectionData } from '@/types/graph';
 import { ConnectionCard } from './ConnectionCard';
 import styles from './NodeDetailPanel.module.css';
 
@@ -7,6 +8,7 @@ interface ConnectionsSectionProps {
   currentNodeId: string;
   nodes: NodeData[];
   edges: EdgeData[];
+  connections?: ConnectionData[];
   onAddEdge: (sourceId: string, targetId: string) => void;
   onRemoveEdge: (edgeId: string) => void;
   onNavigate: (nodeId: string) => void;
@@ -16,6 +18,7 @@ export function ConnectionsSection({
   currentNodeId,
   nodes,
   edges,
+  connections = [],
   onAddEdge,
   onRemoveEdge,
   onNavigate,
@@ -32,15 +35,25 @@ export function ConnectionsSection({
     [edges, currentNodeId],
   );
 
-  const connectedNodeIds = useMemo(
+  // AI-generated connections for this node
+  const nodeConnections = useMemo(
     () =>
-      new Set(
-        connectedEdges.map((e) =>
-          e.sourceId === currentNodeId ? e.targetId : e.sourceId,
-        ),
+      connections.filter(
+        (c) => c.sourceId === currentNodeId || c.targetId === currentNodeId,
       ),
-    [connectedEdges, currentNodeId],
+    [connections, currentNodeId],
   );
+
+  const connectedNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of connectedEdges) {
+      ids.add(e.sourceId === currentNodeId ? e.targetId : e.sourceId);
+    }
+    for (const c of nodeConnections) {
+      ids.add(c.sourceId === currentNodeId ? c.targetId : c.sourceId);
+    }
+    return ids;
+  }, [connectedEdges, nodeConnections, currentNodeId]);
 
   const availableNodes = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -64,17 +77,43 @@ export function ConnectionsSection({
     setSearch('');
   };
 
+  const hasAny = connectedEdges.length > 0 || nodeConnections.length > 0;
+
   return (
     <div className={styles.connectionsSection}>
       <div className={styles.sectionLabel}>Connected Thoughts</div>
 
-      {connectedEdges.length === 0 && !showPicker && (
+      {!hasAny && !showPicker && (
         <div className={styles.emptyConnections}>
           No connections yet. Link related thoughts together.
         </div>
       )}
 
       <div className={styles.connectionsList}>
+        {/* AI connections */}
+        {nodeConnections.map((conn) => {
+          const otherId =
+            conn.sourceId === currentNodeId ? conn.targetId : conn.sourceId;
+          const otherNode = nodes.find((n) => n.id === otherId);
+          if (!otherNode) return null;
+
+          return (
+            <div key={conn.id} className={styles.aiConnectionCard}>
+              <button
+                className={styles.aiConnectionBtn}
+                onClick={() => onNavigate(otherId)}
+              >
+                <span className={styles.connectionDot} />
+                <span className={styles.aiConnectionLabel}>{otherNode.label}</span>
+                <span className={styles.aiConnectionMeta}>
+                  {conn.label} · {conn.type}
+                </span>
+              </button>
+            </div>
+          );
+        })}
+
+        {/* Manual edges */}
         {connectedEdges.map((edge) => {
           const otherId =
             edge.sourceId === currentNodeId ? edge.targetId : edge.sourceId;
