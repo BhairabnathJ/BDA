@@ -37,6 +37,7 @@ function toMetrics(
 export async function mlxGenerate(
   prompt: string,
   onProgress?: OnStreamProgress,
+  modelOverride?: string,
 ): Promise<OllamaResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -48,7 +49,7 @@ export async function mlxGenerate(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: MLX_MODEL,
+        model: modelOverride ?? MLX_MODEL,
         prompt,
         stream: true,
         format: 'json',

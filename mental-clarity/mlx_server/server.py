@@ -38,8 +38,7 @@ MODEL = os.getenv("MLX_MODEL", "mlx-community/Qwen2.5-14B-Instruct-4bit")
 
 app = FastAPI(title="Mental Clarity MLX Sidecar", version="0.1.0")
 
-_model = None
-_tokenizer = None
+_model_cache: dict[str, tuple[object, object]] = {}
 
 
 class GenerateRequest(BaseModel):
@@ -49,14 +48,15 @@ class GenerateRequest(BaseModel):
     format: Optional[str] = "json"
 
 
-def _ensure_loaded() -> None:
-    global _model, _tokenizer
+def _ensure_loaded(model_name: Optional[str] = None) -> tuple[object, object]:
+    selected = model_name or MODEL
     if IMPORT_ERROR is not None:
         raise RuntimeError(
             f"mlx_lm import failed: {IMPORT_ERROR}. Install dependencies from mlx_server/requirements.txt."
         )
-    if _model is None or _tokenizer is None:
-        _model, _tokenizer = load(MODEL)
+    if selected not in _model_cache:
+        _model_cache[selected] = load(selected)
+    return _model_cache[selected]
 
 
 @app.get("/health")
@@ -77,21 +77,22 @@ def health() -> JSONResponse:
                 "ok": True,
                 "backend": "mlx",
                 "model": MODEL,
+                "cachedModels": list(_model_cache.keys()),
             }
         )
     except Exception as exc:  # pragma: no cover - runtime env dependent
         return JSONResponse(status_code=503, content={"ok": False, "error": str(exc)})
 
 
-def _stream(prompt: str) -> Generator[bytes, None, None]:
-    _ensure_loaded()
+def _stream(prompt: str, model_name: Optional[str] = None) -> Generator[bytes, None, None]:
+    model, tokenizer = _ensure_loaded(model_name)
 
     start = time.perf_counter()
     first_token_ms = 0.0
     token_count = 0
 
     full_text = ""
-    for i, token in enumerate(stream_generate(_model, _tokenizer, prompt=prompt), start=1):
+    for i, token in enumerate(stream_generate(model, tokenizer, prompt=prompt), start=1):
         token_text = token.text if hasattr(token, "text") else str(token)
         if not token_text:
             continue
@@ -121,18 +122,11 @@ def _stream(prompt: str) -> Generator[bytes, None, None]:
 def generate(req: GenerateRequest):
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt is required")
-    if req.model and req.model != MODEL:
-        # Keep API simple and deterministic for this app: one configured model.
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": f"Model override unsupported by this sidecar. Configure MLX_MODEL env instead.",
-                "configuredModel": MODEL,
-            },
-        )
-
     try:
-        return StreamingResponse(_stream(req.prompt), media_type="application/x-ndjson")
+        return StreamingResponse(
+            _stream(req.prompt, req.model),
+            media_type="application/x-ndjson",
+        )
     except Exception as exc:  # pragma: no cover - runtime env dependent
         raise HTTPException(status_code=500, detail=f"MLX generation failed: {exc}") from exc
 

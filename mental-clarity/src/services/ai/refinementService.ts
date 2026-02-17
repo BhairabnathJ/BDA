@@ -6,7 +6,7 @@ import type {
   ExtractedTask,
 } from '@/types/graph';
 import { aiGenerate } from './aiClient';
-import type { OllamaMetrics } from './aiClient';
+import type { AIBackend, AIQuantProfile, OllamaMetrics } from './aiClient';
 import { promptB_NodeMatching, promptC_Relationships, promptD_Tasks } from './prompts';
 import { parseNodeMatchResponse, parseRelationshipResponse, parseTaskResponse } from './schemas';
 import type { StatusCallback } from './extractionService';
@@ -23,6 +23,9 @@ export interface RefinementResult {
     promptC?: OllamaMetrics;
     promptD?: OllamaMetrics;
   };
+  backendUsed: AIBackend;
+  modelUsed: string;
+  quantUsed: AIQuantProfile;
 }
 
 function logPromptMetrics(name: string, metrics: OllamaMetrics) {
@@ -39,6 +42,7 @@ export async function refineGraph(
   newNodes: NodeData[],
   existingNodes: NodeData[],
   onStatus?: StatusCallback,
+  quantProfile?: AIQuantProfile,
 ): Promise<RefinementResult> {
   const result: RefinementResult = {
     nodeUpdates: new Map(),
@@ -48,6 +52,9 @@ export async function refineGraph(
     merges: new Map(),
     timings: { matchingMs: 0, relationshipsMs: 0, tasksMs: 0 },
     promptMetrics: {},
+    backendUsed: 'ollama',
+    modelUsed: 'unknown',
+    quantUsed: 'q6',
   };
 
   const allNodes = [...existingNodes, ...newNodes];
@@ -66,11 +73,16 @@ export async function refineGraph(
   // Prompt B: Node Matching
   try {
     onStatus?.('refining-hierarchy');
-    const { text: raw, metrics } = await aiGenerate(
+    const generated = await aiGenerate(
       promptB_NodeMatching(dumpText, newSlim, existingSlim),
+      quantProfile,
     );
+    const { text: raw, metrics } = generated;
     logPromptMetrics('Prompt B (Matching)', metrics);
     result.promptMetrics.promptB = metrics;
+    result.backendUsed = generated.backend;
+    result.modelUsed = generated.model;
+    result.quantUsed = generated.quant;
     result.timings.matchingMs = Date.now() - refinementStart;
     const { topics } = parseNodeMatchResponse(raw);
 
@@ -132,11 +144,16 @@ export async function refineGraph(
   try {
     onStatus?.('finding-connections');
     const nodeSlim = allNodes.map((n) => ({ id: n.id, label: n.label }));
-    const { text: raw, metrics } = await aiGenerate(
+    const generated = await aiGenerate(
       promptC_Relationships(dumpText, nodeSlim),
+      quantProfile,
     );
+    const { text: raw, metrics } = generated;
     logPromptMetrics('Prompt C (Relationships)', metrics);
     result.promptMetrics.promptC = metrics;
+    result.backendUsed = generated.backend;
+    result.modelUsed = generated.model;
+    if (generated.quant === 'q4-fallback') result.quantUsed = generated.quant;
     result.timings.relationshipsMs = Date.now() - refinementStart;
     const parsed = parseRelationshipResponse(
       raw,
@@ -171,11 +188,16 @@ export async function refineGraph(
   try {
     onStatus?.('extracting-tasks');
     const topicLabels = allNodes.map((n) => n.label);
-    const { text: raw, metrics } = await aiGenerate(
+    const generated = await aiGenerate(
       promptD_Tasks(dumpText, topicLabels),
+      quantProfile,
     );
+    const { text: raw, metrics } = generated;
     logPromptMetrics('Prompt D (Tasks)', metrics);
     result.promptMetrics.promptD = metrics;
+    result.backendUsed = generated.backend;
+    result.modelUsed = generated.model;
+    if (generated.quant === 'q4-fallback') result.quantUsed = generated.quant;
     result.timings.tasksMs = Date.now() - refinementStart;
     result.tasks = parseTaskResponse(raw).tasks;
   } catch (err) {

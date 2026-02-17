@@ -10,6 +10,7 @@ interface LogAIRunArgs {
   mode: AIRunMode;
   sessionId: string;
   inputHash?: string;
+  model?: string;
   backend?: string;
   quant?: string;
   promptProfileId?: string;
@@ -57,10 +58,11 @@ export function logAIRun(
 ): void {
   const inputHash = args.inputHash ?? hashInput(args.dumpText);
   const backend = args.backend ?? getAIBackend();
+  const model = args.model ?? getAIModelName();
 
   createRunMutation({
     dumpText: args.dumpText,
-    model: getAIModelName(),
+    model,
     promptVersion: PROMPT_VERSION,
     promptProfileId: args.promptProfileId ?? DEFAULT_PROMPT_PROFILE_ID,
     inputHash,

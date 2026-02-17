@@ -1,23 +1,44 @@
 import { getMLXModelName, mlxGenerate, mlxHealthCheck } from './mlxClient';
 import { getModelName as getOllamaModelName, ollamaGenerate, ollamaHealthCheck } from './ollamaClient';
-import type { OllamaResult, OnStreamProgress } from './types';
+import type { AIBackend, AIQuantProfile, AIResult, OnStreamProgress } from './types';
 
-type AIBackend = 'ollama' | 'mlx';
-type AIQuantProfile = 'q6' | 'q8' | 'q4-fallback';
+const MLX_MODEL_Q6 = import.meta.env.VITE_MLX_MODEL_Q6 ?? 'mlx-community/Qwen2.5-14B-Instruct-6bit';
+const MLX_MODEL_Q8 = import.meta.env.VITE_MLX_MODEL_Q8 ?? 'mlx-community/Qwen2.5-14B-Instruct-8bit';
+const MLX_MODEL_Q4_FALLBACK = import.meta.env.VITE_MLX_MODEL_Q4 ?? getMLXModelName();
 
 const backend = ((import.meta.env.VITE_AI_BACKEND ?? 'ollama').toLowerCase() === 'mlx'
   ? 'mlx'
   : 'ollama') as AIBackend;
 
+function modelForQuant(quant: AIQuantProfile): string {
+  if (quant === 'q8') return MLX_MODEL_Q8;
+  if (quant === 'q6') return MLX_MODEL_Q6;
+  return MLX_MODEL_Q4_FALLBACK;
+}
+
 async function generateWithBackend(
   selected: AIBackend,
   prompt: string,
+  quantProfile: AIQuantProfile,
   onProgress?: OnStreamProgress,
-): Promise<OllamaResult> {
+): Promise<AIResult> {
   if (selected === 'mlx') {
-    return mlxGenerate(prompt, onProgress);
+    const model = modelForQuant(quantProfile);
+    const res = await mlxGenerate(prompt, onProgress, model);
+    return {
+      ...res,
+      backend: 'mlx',
+      model,
+      quant: quantProfile,
+    };
   }
-  return ollamaGenerate(prompt, onProgress);
+  const res = await ollamaGenerate(prompt, onProgress);
+  return {
+    ...res,
+    backend: 'ollama',
+    model: getOllamaModelName(),
+    quant: quantProfile,
+  };
 }
 
 async function healthWithBackend(selected: AIBackend): Promise<boolean> {
@@ -32,17 +53,27 @@ function modelWithBackend(selected: AIBackend): string {
 
 export async function aiGenerate(
   prompt: string,
+  quantProfile: AIQuantProfile = getAIQuantProfile(),
   onProgress?: OnStreamProgress,
-): Promise<OllamaResult> {
+): Promise<AIResult> {
   if (backend !== 'mlx') {
-    return generateWithBackend('ollama', prompt, onProgress);
+    return generateWithBackend('ollama', prompt, quantProfile, onProgress);
   }
 
   try {
-    return await generateWithBackend('mlx', prompt, onProgress);
+    return await generateWithBackend('mlx', prompt, quantProfile, onProgress);
   } catch (err) {
-    console.warn('[AI] MLX generation failed, falling back to Ollama:', err);
-    return generateWithBackend('ollama', prompt, onProgress);
+    console.warn('[AI] MLX generation failed for quant', quantProfile, err);
+    if (quantProfile !== 'q4-fallback') {
+      try {
+        const fallback = await generateWithBackend('mlx', prompt, 'q4-fallback', onProgress);
+        console.warn('[AI] Applied MLX q4 emergency fallback');
+        return fallback;
+      } catch (fallbackErr) {
+        console.warn('[AI] MLX q4 fallback failed, falling back to Ollama:', fallbackErr);
+      }
+    }
+    return generateWithBackend('ollama', prompt, 'q4-fallback', onProgress);
   }
 }
 
@@ -75,4 +106,11 @@ export function getAIQuantProfile(): AIQuantProfile {
   return 'q6';
 }
 
-export type { OllamaMetrics, OnStreamProgress, StreamProgress } from './types';
+export function getAIBenchmarkQuantProfile(): AIQuantProfile {
+  const configured = (import.meta.env.VITE_AI_QUANT_BENCHMARK ?? 'q8').toLowerCase();
+  if (configured === 'q6') return 'q6';
+  if (configured === 'q4-fallback') return 'q4-fallback';
+  return 'q8';
+}
+
+export type { AIBackend, AIQuantProfile, OllamaMetrics, OnStreamProgress, StreamProgress } from './types';

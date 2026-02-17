@@ -4,7 +4,7 @@ import type {
   AIServiceStatus,
 } from '@/types/graph';
 import { aiGenerate, aiHealthCheck } from './aiClient';
-import type { OllamaMetrics, OnStreamProgress } from './aiClient';
+import type { AIBackend, AIQuantProfile, OllamaMetrics, OnStreamProgress } from './aiClient';
 import { promptA_TopicHierarchy } from './prompts';
 import { parseTopicResponse } from './schemas';
 import { fallbackExtract } from './fallback';
@@ -20,6 +20,9 @@ export interface Phase1Result {
   errorMessage?: string;
   entitiesMs: number;
   promptMetrics?: OllamaMetrics;
+  backendUsed: AIBackend;
+  modelUsed: string;
+  quantUsed: AIQuantProfile;
 }
 
 export type StatusCallback = (status: AIServiceStatus) => void;
@@ -36,6 +39,7 @@ export async function extractTopics(
   text: string,
   onStatus?: StatusCallback,
   onProgress?: OnStreamProgress,
+  quantProfile?: AIQuantProfile,
 ): Promise<Phase1Result | null> {
   const trimmed = text.trim();
   if (trimmed.length < MIN_INPUT_LENGTH) return null;
@@ -54,7 +58,16 @@ export async function extractTopics(
   if (!isHealthy) {
     onStatus?.('unavailable');
     const fb = fallbackExtract(input, dumpId);
-    return { nodes: fb, dump, aiStatus: 'fallback', errorMessage: 'Ollama unavailable', entitiesMs: 0 };
+    return {
+      nodes: fb,
+      dump,
+      aiStatus: 'fallback',
+      errorMessage: 'Model backend unavailable',
+      entitiesMs: 0,
+      backendUsed: 'ollama',
+      modelUsed: 'fallback',
+      quantUsed: 'q4-fallback',
+    };
   }
 
   // Prompt A: Topic Hierarchy
@@ -62,10 +75,12 @@ export async function extractTopics(
   const entitiesStart = Date.now();
 
   try {
-    const { text: raw, metrics } = await aiGenerate(
+    const generated = await aiGenerate(
       promptA_TopicHierarchy(input),
+      quantProfile,
       onProgress,
     );
+    const { text: raw, metrics } = generated;
     logPromptMetrics('Prompt A (Topics)', metrics);
 
     const { topics } = parseTopicResponse(raw);
@@ -150,7 +165,16 @@ export async function extractTopics(
       }
     }
 
-    return { nodes, dump, aiStatus: 'success', entitiesMs, promptMetrics: metrics };
+    return {
+      nodes,
+      dump,
+      aiStatus: 'success',
+      entitiesMs,
+      promptMetrics: metrics,
+      backendUsed: generated.backend,
+      modelUsed: generated.model,
+      quantUsed: generated.quant,
+    };
   } catch (err) {
     console.warn('[AI] Prompt A failed, using fallback:', err);
     onStatus?.('error');
@@ -161,6 +185,9 @@ export async function extractTopics(
       aiStatus: 'fallback',
       errorMessage: `Topic extraction failed: ${err instanceof Error ? err.message : String(err)}`,
       entitiesMs,
+      backendUsed: 'ollama',
+      modelUsed: 'fallback',
+      quantUsed: 'q4-fallback',
     };
   }
 }

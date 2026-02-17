@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { extractTopics, refineGraph } from '@/services/ai';
-import type { OllamaMetrics, StreamProgress } from '@/services/ai/aiClient';
+import type { AIBackend, AIQuantProfile, OllamaMetrics, StreamProgress } from '@/services/ai/aiClient';
 import type { AIServiceStatus, NodeData, ConnectionData, PageData, DumpData, AIRunMeta, PromptMetricsSummary, ExtractedTask, AIRunArtifacts, AIRunMode } from '@/types/graph';
 
 export interface AIRunResult {
@@ -11,6 +11,9 @@ export interface AIRunResult {
   connectionCount: number;
   aiStatus: 'success' | 'fallback' | 'error';
   errorMessage?: string;
+  backendUsed: AIBackend;
+  modelUsed: string;
+  quantUsed: AIQuantProfile;
   meta: AIRunMeta;
   artifacts: AIRunArtifacts;
 }
@@ -27,7 +30,11 @@ export interface GraphCallbacks {
 }
 
 interface UseAIExtractionReturn {
-  submit: (text: string, mode?: AIRunMode) => Promise<AIRunResult | null>;
+  submit: (
+    text: string,
+    mode?: AIRunMode,
+    quantProfile?: AIQuantProfile,
+  ) => Promise<AIRunResult | null>;
   status: AIServiceStatus;
   isProcessing: boolean;
   /** Live streaming progress (tokens, tokens/sec, elapsed) */
@@ -50,7 +57,11 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
   const [streamProgress, setStreamProgress] = useState<StreamProgress | null>(null);
   const activeRef = useRef(false);
 
-  const submit = useCallback(async (text: string, mode: AIRunMode = 'apply'): Promise<AIRunResult | null> => {
+  const submit = useCallback(async (
+    text: string,
+    mode: AIRunMode = 'apply',
+    quantProfile?: AIQuantProfile,
+  ): Promise<AIRunResult | null> => {
     if (activeRef.current) return null;
     activeRef.current = true;
     const startedAt = Date.now();
@@ -58,7 +69,7 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
 
     try {
       // -- Phase 1: Fast topic extraction (with stream progress) --
-      const phase1 = await extractTopics(text, setStatus, setStreamProgress);
+      const phase1 = await extractTopics(text, setStatus, setStreamProgress, quantProfile);
       if (!phase1) {
         activeRef.current = false;
         return null;
@@ -75,6 +86,9 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
       let generatedConnections: ConnectionData[] = [];
       let generatedPages: PageData[] = [];
       let generatedTasks: ExtractedTask[] = [];
+      let backendUsed = phase1.backendUsed;
+      let modelUsed = phase1.modelUsed;
+      let quantUsed = phase1.quantUsed;
       let refinementTimings = { matchingMs: 0, relationshipsMs: 0, tasksMs: 0 };
       let refinementPromptMetrics: { promptB?: OllamaMetrics; promptC?: OllamaMetrics; promptD?: OllamaMetrics } = {};
       const finalStatus = phase1.aiStatus;
@@ -92,10 +106,18 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
               !phase1.nodes.some((pn) => pn.id === n.id),
             ),
             setStatus,
+            quantProfile,
           );
 
           refinementTimings = refinement.timings;
           refinementPromptMetrics = refinement.promptMetrics;
+          backendUsed = refinement.backendUsed;
+          modelUsed = refinement.modelUsed;
+          if (refinement.quantUsed === 'q4-fallback') {
+            quantUsed = 'q4-fallback';
+          } else if (quantUsed !== 'q4-fallback') {
+            quantUsed = refinement.quantUsed;
+          }
 
           if (mode === 'apply' && refinement.nodeUpdates.size > 0) {
             callbacks.updateNodes(refinement.nodeUpdates);
@@ -139,6 +161,9 @@ export function useAIExtraction(callbacks: GraphCallbacks): UseAIExtractionRetur
         connectionCount: totalConnections,
         aiStatus: finalStatus,
         errorMessage: finalError,
+        backendUsed,
+        modelUsed,
+        quantUsed,
         meta: {
           timings: {
             entitiesMs: phase1.entitiesMs,

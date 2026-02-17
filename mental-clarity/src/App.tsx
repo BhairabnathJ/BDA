@@ -12,7 +12,7 @@ import type { ConnectionData, NodeData, PageData, DumpData, ExtractedTask } from
 import { useAIExtraction } from '@/hooks/useAIExtraction';
 import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
-import { getAIQuantProfile } from '@/services/ai/aiClient';
+import { getAIBenchmarkQuantProfile, getAIQuantProfile } from '@/services/ai/aiClient';
 
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
@@ -119,7 +119,7 @@ function App() {
 
   const handleSubmit = useCallback(async (text: string) => {
     const connectionsBefore = connectionsRef.current.length;
-    const result = await submit(text, 'apply');
+    const result = await submit(text, 'apply', getAIQuantProfile());
     if (!result) return;
 
     // Log the AI run (fire-and-forget)
@@ -127,7 +127,9 @@ function App() {
       dumpText: result.rawText,
       mode: 'apply',
       sessionId: runSessionIdRef.current,
-      quant: getAIQuantProfile(),
+      backend: result.backendUsed,
+      model: result.modelUsed,
+      quant: result.quantUsed,
       startedAt: result.startedAt,
       finishedAt: result.finishedAt,
       nodeCount: result.nodeCount,
@@ -172,14 +174,16 @@ function App() {
   }, [submit, createThought, addConnectionsMutation, createAIRun]);
 
   const handleBenchmark = useCallback(async (text: string, sessionId?: string) => {
-    const result = await submit(text, 'benchmark');
+    const result = await submit(text, 'benchmark', getAIBenchmarkQuantProfile());
     if (!result) return;
 
     logAIRun(createAIRun, {
       dumpText: result.rawText,
       mode: 'benchmark',
       sessionId: sessionId ?? runSessionIdRef.current,
-      quant: getAIQuantProfile(),
+      backend: result.backendUsed,
+      model: result.modelUsed,
+      quant: result.quantUsed,
       startedAt: result.startedAt,
       finishedAt: result.finishedAt,
       nodeCount: result.nodeCount,
