@@ -3,8 +3,8 @@ import type {
   DumpData,
   AIServiceStatus,
 } from '@/types/graph';
-import { ollamaGenerate, ollamaHealthCheck } from './ollamaClient';
-import type { OllamaMetrics, OnStreamProgress } from './ollamaClient';
+import { aiGenerate, aiHealthCheck } from './aiClient';
+import type { OllamaMetrics, OnStreamProgress } from './aiClient';
 import { promptA_TopicHierarchy } from './prompts';
 import { parseTopicResponse } from './schemas';
 import { fallbackExtract } from './fallback';
@@ -50,7 +50,7 @@ export async function extractTopics(
 
   // Health check
   onStatus?.('checking');
-  const isHealthy = await ollamaHealthCheck();
+  const isHealthy = await aiHealthCheck();
   if (!isHealthy) {
     onStatus?.('unavailable');
     const fb = fallbackExtract(input, dumpId);
@@ -62,7 +62,7 @@ export async function extractTopics(
   const entitiesStart = Date.now();
 
   try {
-    const { text: raw, metrics } = await ollamaGenerate(
+    const { text: raw, metrics } = await aiGenerate(
       promptA_TopicHierarchy(input),
       onProgress,
     );

@@ -1,32 +1,9 @@
+import type { OllamaMetrics, OllamaResult, OnStreamProgress } from './types';
+export type { OllamaMetrics, OllamaResult, StreamProgress, OnStreamProgress } from './types';
+
 const OLLAMA_BASE_URL = 'http://localhost:11434';
 const MODEL_NAME = 'qwen2.5:14b';
 const REQUEST_TIMEOUT_MS = 60_000;
-
-/** Metrics returned alongside the response text */
-export interface OllamaMetrics {
-  totalDurationMs: number;
-  loadDurationMs: number;
-  promptEvalDurationMs: number;
-  evalDurationMs: number;
-  promptTokens: number;
-  evalTokens: number;
-  tokensPerSec: number;
-  timeToFirstTokenMs: number;
-}
-
-export interface OllamaResult {
-  text: string;
-  metrics: OllamaMetrics;
-}
-
-/** Callback invoked on each streamed chunk with running stats */
-export interface StreamProgress {
-  tokens: number;
-  tokensPerSec: number;
-  elapsedMs: number;
-}
-
-export type OnStreamProgress = (progress: StreamProgress) => void;
 
 /**
  * Generate a response from Ollama using streaming.
