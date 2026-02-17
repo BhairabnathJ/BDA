@@ -113,7 +113,7 @@ function App() {
     getExistingNodes: () => nodesRef.current,
   }), []);
 
-  const { submit, status, isProcessing } = useAIExtraction(graphCallbacks);
+  const { submit, status, isProcessing, streamProgress } = useAIExtraction(graphCallbacks);
 
   const handleSubmit = useCallback(async (text: string) => {
     const connectionsBefore = connectionsRef.current.length;
@@ -319,6 +319,7 @@ function App() {
         onSubmit={handleSubmit}
         isProcessing={isProcessing}
         aiStatus={status}
+        streamProgress={streamProgress}
       />
       <ArchiveDropZone
         ref={archiveZoneRef}

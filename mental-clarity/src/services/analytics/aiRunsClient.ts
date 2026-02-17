@@ -1,6 +1,6 @@
 import type { AIRunMeta } from '@/types/graph';
+import { getModelName } from '@/services/ai/ollamaClient';
 
-const MODEL_NAME = 'mental-clarity';
 const PROMPT_VERSION = 'topics_v1';
 
 interface LogAIRunArgs {
@@ -33,7 +33,7 @@ export function logAIRun(
 ): void {
   createRunMutation({
     dumpText: args.dumpText,
-    model: MODEL_NAME,
+    model: getModelName(),
     promptVersion: PROMPT_VERSION,
     startedAt: args.startedAt,
     finishedAt: args.finishedAt,
