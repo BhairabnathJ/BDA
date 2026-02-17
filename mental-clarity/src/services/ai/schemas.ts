@@ -93,6 +93,12 @@ export function parseRelationshipResponse(
       sourceLabel: String(r.sourceLabel),
       targetLabel: String(r.targetLabel),
       label: typeof r.label === 'string' ? r.label.slice(0, 60) : 'related to',
+      justification:
+        typeof r.justification === 'string'
+          ? r.justification.slice(0, 220)
+          : typeof r.reason === 'string'
+          ? r.reason.slice(0, 220)
+          : undefined,
       type: VALID_CONN_TYPES.includes(r.type as ConnectionType)
         ? (r.type as ConnectionType)
         : 'related' as ConnectionType,

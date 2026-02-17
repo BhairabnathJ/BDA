@@ -121,6 +121,7 @@ Return ONLY this JSON:
       "sourceLabel": "node label from list",
       "targetLabel": "different node label from list",
       "label": "describes the relationship",
+      "justification": "short evidence-based reason from the text",
       "type": "direct|semantic|causes|part-of|contrasts",
       "strength": 0.1 to 1.0
     }
@@ -130,6 +131,7 @@ Return ONLY this JSON:
 Rules:
 - Only use labels from the provided node list
 - Types: "direct" (explicitly mentioned together), "semantic" (thematically related), "causes" (A leads to B), "part-of" (A is subset of B), "contrasts" (A vs B)
+- justification should be one concise sentence grounded in the dump text
 - Strength: 0.8-1.0 (explicit), 0.5-0.7 (implied), 0.1-0.4 (tangential)
 - Max ${Math.min(nodes.length * 2, 15)} relationships
 - Prefer quality over quantity — skip weak/obvious connections`;

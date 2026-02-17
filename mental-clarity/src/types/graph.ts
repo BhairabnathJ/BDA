@@ -55,6 +55,7 @@ export interface ConnectionData {
   label: string;
   type: ConnectionType;
   strength: number;   // 0.1 – 1.0
+  justification?: string;
   createdAt: number;
 }
 
@@ -91,6 +92,7 @@ export interface ExtractedRelationship {
   label: string;
   type: ConnectionType;
   strength: number;
+  justification?: string;
 }
 
 export interface EntityExtractionResponse {

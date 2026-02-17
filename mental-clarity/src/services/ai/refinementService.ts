@@ -178,6 +178,7 @@ export async function refineGraph(
         label: rel.label,
         type: rel.type,
         strength: rel.strength,
+        justification: rel.justification,
         createdAt: now,
       });
     }

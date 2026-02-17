@@ -14,6 +14,7 @@ interface RunArtifactConnection {
   label: string;
   type: string;
   strength?: number;
+  justification?: string;
 }
 
 interface AIRunDoc {
@@ -894,6 +895,18 @@ export function AIRunsDashboard({
                     (pm?.promptB?.evalTokens ?? 0) +
                     (pm?.promptC?.evalTokens ?? 0) +
                     (pm?.promptD?.evalTokens ?? 0);
+                  const artifactNodes = run.artifacts?.nodes ?? [];
+                  const artifactConnections = run.artifacts?.connections ?? [];
+                  const nodeMap = new Map(artifactNodes.map((n) => [n.id, n.label]));
+                  const incidentByNode = new Map<string, { connection: RunArtifactConnection; direction: 'in' | 'out' }[]>();
+                  for (const conn of artifactConnections) {
+                    const outList = incidentByNode.get(conn.sourceId) ?? [];
+                    outList.push({ connection: conn, direction: 'out' });
+                    incidentByNode.set(conn.sourceId, outList);
+                    const inList = incidentByNode.get(conn.targetId) ?? [];
+                    inList.push({ connection: conn, direction: 'in' });
+                    incidentByNode.set(conn.targetId, inList);
+                  }
                   const baselineDurationDelta = baselineRun ? run.durationMs - baselineRun.durationMs : 0;
                   const baselineConnDelta = baselineRun ? run.connectionCount - baselineRun.connectionCount : 0;
 
@@ -1068,16 +1081,70 @@ export function AIRunsDashboard({
                             </div>
                             <div style={{ marginTop: 10 }}>
                               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+                                Node Connectivity
+                              </div>
+                              {artifactNodes.length === 0 ? (
+                                <div style={{ fontSize: 11, color: 'var(--color-text-disabled)' }}>
+                                  No node artifacts captured for this run.
+                                </div>
+                              ) : (
+                                <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                                  {artifactNodes.map((node) => {
+                                    const incident = incidentByNode.get(node.id) ?? [];
+                                    return (
+                                      <div
+                                        key={`node_conn_${node.id}`}
+                                        style={{
+                                          border: '1px solid rgba(168,197,209,0.12)',
+                                          borderRadius: 6,
+                                          padding: '7px 9px',
+                                          background: 'rgba(255,255,255,0.45)',
+                                        }}
+                                      >
+                                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>{node.label}</div>
+                                        {incident.length === 0 ? (
+                                          <div style={{ fontSize: 10, color: 'var(--color-text-disabled)' }}>No connections.</div>
+                                        ) : (
+                                          <div style={{ display: 'grid', gap: 4 }}>
+                                            {incident.map(({ connection, direction }, index) => {
+                                              const otherId = direction === 'out' ? connection.targetId : connection.sourceId;
+                                              const otherLabel = nodeMap.get(otherId) ?? otherId;
+                                              return (
+                                                <div key={`${node.id}_${index}`} style={{ fontSize: 10 }}>
+                                                  <span style={{ color: 'var(--color-text-disabled)' }}>
+                                                    {direction === 'out' ? '→' : '←'}
+                                                  </span>{' '}
+                                                  <span style={{ fontWeight: 600 }}>{otherLabel}</span>
+                                                  <span style={{ color: 'var(--color-text-disabled)' }}> · {connection.type} · </span>
+                                                  <span>{connection.label}</span>
+                                                  <span style={{ color: 'var(--color-text-disabled)' }}>
+                                                    {' '}({(connection.strength ?? 0).toFixed(2)})
+                                                  </span>
+                                                  <div style={{ color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                                                    Why: {connection.justification ?? 'No explicit justification returned by the model for this connection.'}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ marginTop: 10 }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
                                 Connection Labels
                               </div>
-                              {(run.artifacts?.connections?.length ?? 0) === 0 ? (
+                              {artifactConnections.length === 0 ? (
                                 <div style={{ fontSize: 11, color: 'var(--color-text-disabled)' }}>
                                   No connection artifacts captured for this run.
                                 </div>
                               ) : (
                                 <div style={{ display: 'grid', gap: 6 }}>
-                                  {run.artifacts?.connections?.map((c, idx) => {
-                                    const nodeMap = new Map((run.artifacts?.nodes ?? []).map((n) => [n.id, n.label]));
+                                  {artifactConnections.map((c, idx) => {
                                     const sourceLabel = nodeMap.get(c.sourceId) ?? c.sourceId;
                                     const targetLabel = nodeMap.get(c.targetId) ?? c.targetId;
                                     const key = toConnectionKey(c);
@@ -1103,6 +1170,9 @@ export function AIRunsDashboard({
                                           <span style={{ fontWeight: 600 }}>{targetLabel}</span>
                                           <span style={{ color: 'var(--color-text-disabled)' }}> · {c.type} · </span>
                                           <span>{c.label}</span>
+                                          <div style={{ color: 'var(--color-text-secondary)', marginTop: 3 }}>
+                                            Why: {c.justification ?? 'No explicit justification returned by the model for this connection.'}
+                                          </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: 6 }}>
                                           <button
