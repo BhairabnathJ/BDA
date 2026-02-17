@@ -437,6 +437,20 @@ export function AIRunsDashboard({
     [chartRuns, reviewCountsByRun],
   );
 
+  const baselineDeltas = useMemo(() => {
+    if (!baselineRun || runs.length === 0) return null;
+    const latest = runs[0];
+    const latestQuality = latest.quality?.score ?? 0;
+    const baselineQuality = baselineRun.quality?.score ?? 0;
+    return {
+      durationMs: latest.durationMs - baselineRun.durationMs,
+      nodeCount: latest.nodeCount - baselineRun.nodeCount,
+      connectionCount: latest.connectionCount - baselineRun.connectionCount,
+      taskCount: (latest.artifacts?.tasks?.length ?? 0) - (baselineRun.artifacts?.tasks?.length ?? 0),
+      quality: latestQuality - baselineQuality,
+    };
+  }, [baselineRun, runs]);
+
   return (
     <div style={{
       position: 'fixed',
@@ -653,6 +667,25 @@ export function AIRunsDashboard({
             }}
           >
             Baseline: {formatDate(baselineRun.finishedAt)} · {baselineRun.durationMs}ms · {baselineRun.nodeCount} nodes · {baselineRun.connectionCount} conns
+          </div>
+        )}
+        {baselineDeltas && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, border: '1px solid rgba(168,197,209,0.15)', borderRadius: 6, padding: '5px 8px' }}>
+              Δ Duration: {formatDelta(baselineDeltas.durationMs)}ms
+            </span>
+            <span style={{ fontSize: 11, border: '1px solid rgba(168,197,209,0.15)', borderRadius: 6, padding: '5px 8px' }}>
+              Δ Quality: {formatDelta(Number(baselineDeltas.quality.toFixed(1)))}
+            </span>
+            <span style={{ fontSize: 11, border: '1px solid rgba(168,197,209,0.15)', borderRadius: 6, padding: '5px 8px' }}>
+              Δ Nodes: {formatDelta(baselineDeltas.nodeCount)}
+            </span>
+            <span style={{ fontSize: 11, border: '1px solid rgba(168,197,209,0.15)', borderRadius: 6, padding: '5px 8px' }}>
+              Δ Conns: {formatDelta(baselineDeltas.connectionCount)}
+            </span>
+            <span style={{ fontSize: 11, border: '1px solid rgba(168,197,209,0.15)', borderRadius: 6, padding: '5px 8px' }}>
+              Δ Tasks: {formatDelta(baselineDeltas.taskCount)}
+            </span>
           </div>
         )}
 
