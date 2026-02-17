@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
 import type { NodeData, EdgeData } from '../Node';
+import type { PageData, ExtractedTask } from '@/types/graph';
 import { PanelHeader } from './PanelHeader';
 import { RichTextEditor } from './RichTextEditor';
 import { ConnectionsSection } from './ConnectionsSection';
+import { PageContextsSection } from './PageContextsSection';
 import styles from './NodeDetailPanel.module.css';
 
 interface NodeDetailPanelProps {
   node: NodeData;
   nodes: NodeData[];
   edges: EdgeData[];
+  pages?: PageData[];
+  tasks?: ExtractedTask[];
   onUpdate: (id: string, updates: Partial<Pick<NodeData, 'label' | 'content'>>) => void;
   onArchive: (id: string) => void;
   onAddEdge: (sourceId: string, targetId: string) => void;
   onRemoveEdge: (edgeId: string) => void;
   onNavigate: (nodeId: string) => void;
+  onUpdatePage?: (pageId: string, updates: Partial<PageData>) => void;
   onClose: () => void;
 }
 
@@ -22,11 +27,14 @@ export function NodeDetailPanel({
   node,
   nodes,
   edges,
+  pages = [],
+  tasks = [],
   onUpdate,
   onArchive,
   onAddEdge,
   onRemoveEdge,
   onNavigate,
+  onUpdatePage,
   onClose,
 }: NodeDetailPanelProps) {
   const [label, setLabel] = useState(node.label);
@@ -116,6 +124,15 @@ export function NodeDetailPanel({
         />
 
         <div ref={contentRef} className={styles.content}>
+          <PageContextsSection
+            page={pages.find((p) => p.id === node.pageId)}
+            node={node}
+            nodes={nodes}
+            tasks={tasks}
+            onNavigate={onNavigate}
+            onUpdatePage={onUpdatePage}
+          />
+
           <RichTextEditor
             content={node.content ?? ''}
             onUpdate={handleContentUpdate}

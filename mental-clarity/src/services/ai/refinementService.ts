@@ -3,10 +3,11 @@ import type {
   ConnectionData,
   PageData,
   PageContext,
+  ExtractedTask,
 } from '@/types/graph';
 import { ollamaGenerate } from './ollamaClient';
-import { promptB_NodeMatching, promptC_Relationships } from './prompts';
-import { parseNodeMatchResponse, parseRelationshipResponse } from './schemas';
+import { promptB_NodeMatching, promptC_Relationships, promptD_Tasks } from './prompts';
+import { parseNodeMatchResponse, parseRelationshipResponse, parseTaskResponse } from './schemas';
 import type { StatusCallback } from './extractionService';
 
 export interface RefinementResult {
@@ -16,10 +17,12 @@ export interface RefinementResult {
   connections: ConnectionData[];
   /** Pages to create/update */
   pages: PageData[];
+  /** Extracted tasks */
+  tasks: ExtractedTask[];
   /** Node IDs to merge (new -> existing) */
   merges: Map<string, string>;
   /** Timing for analytics */
-  timings: { matchingMs: number; relationshipsMs: number };
+  timings: { matchingMs: number; relationshipsMs: number; tasksMs: number };
 }
 
 export async function refineGraph(
@@ -33,16 +36,17 @@ export async function refineGraph(
     nodeUpdates: new Map(),
     connections: [],
     pages: [],
+    tasks: [],
     merges: new Map(),
-    timings: { matchingMs: 0, relationshipsMs: 0 },
+    timings: { matchingMs: 0, relationshipsMs: 0, tasksMs: 0 },
   };
 
   const allNodes = [...existingNodes, ...newNodes];
   const now = Date.now();
 
-  // Run B + C in parallel
+  // Run B + C + D in parallel
   const matchingStart = Date.now();
-  const [matchResult, connResult] = await Promise.allSettled([
+  const [matchResult, connResult, taskResult] = await Promise.allSettled([
     // Prompt B: Node Matching + Multi-Parent
     (async () => {
       onStatus?.('refining-hierarchy');
@@ -72,6 +76,16 @@ export async function refineGraph(
         raw,
         allNodes.map((n) => n.label),
       );
+    })(),
+
+    // Prompt D: Task Extraction
+    (async () => {
+      onStatus?.('extracting-tasks');
+      const topicLabels = allNodes.map((n) => n.label);
+      const raw = await ollamaGenerate(
+        promptD_Tasks(dumpText, topicLabels),
+      );
+      return parseTaskResponse(raw);
     })(),
   ]);
 
@@ -162,6 +176,14 @@ export async function refineGraph(
     result.connections = conns;
   } else {
     console.warn('[AI] Prompt C failed:', connResult.reason);
+  }
+
+  // Process Prompt D results (tasks)
+  if (taskResult.status === 'fulfilled') {
+    result.timings.tasksMs = Date.now() - matchingStart;
+    result.tasks = taskResult.value.tasks;
+  } else {
+    console.warn('[AI] Prompt D failed:', taskResult.reason);
   }
 
   return result;
