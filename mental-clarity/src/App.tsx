@@ -31,15 +31,20 @@ function App() {
   );
 
   const createThought = useMutation(api.thoughts.create);
+  const addConnectionsMutation = useMutation(api.thoughts.addConnections);
   const updateNodeMutation = useMutation(api.thoughts.updateNode);
   const deleteNodeMutation = useMutation(api.thoughts.deleteNode);
   const createAIRun = useMutation(api.aiRuns.createRun);
   const savedThoughts = useQuery(api.thoughts.list);
 
-  // Ref to access latest nodes without re-creating graphCallbacks
+  // Refs to access latest state without re-creating graphCallbacks
   const nodesRef = useRef<NodeData[]>(nodes);
+  const connectionsRef = useRef<ConnectionData[]>(connections);
   useEffect(() => {
     nodesRef.current = nodes;
+  });
+  useEffect(() => {
+    connectionsRef.current = connections;
   });
 
   // Dev dashboard hotkey: Ctrl+Shift+D
@@ -111,6 +116,7 @@ function App() {
   const { submit, status, isProcessing } = useAIExtraction(graphCallbacks);
 
   const handleSubmit = useCallback(async (text: string) => {
+    const connectionsBefore = connectionsRef.current.length;
     const result = await submit(text);
     if (!result) return;
 
@@ -128,24 +134,36 @@ function App() {
 
     // Persist to Convex
     try {
+      const newNodes = nodesRef.current.filter((n) => !n.thoughtId).slice(-result.nodeCount);
       const thoughtId = await createThought({
         text: result.rawText,
-        nodes: nodesRef.current.filter((n) => !n.thoughtId).slice(-result.nodeCount),
+        nodes: newNodes,
         connections: [],
         createdAt: Date.now(),
       });
+      const thoughtIdStr = thoughtId as string;
+
       // Tag newly created nodes with thoughtId
       setNodes((prev) =>
         prev.map((n) =>
-          !n.thoughtId && nodesRef.current.slice(-result.nodeCount).some((rn) => rn.id === n.id)
-            ? { ...n, thoughtId: thoughtId as string }
+          !n.thoughtId && newNodes.some((rn) => rn.id === n.id)
+            ? { ...n, thoughtId: thoughtIdStr }
             : n,
         ),
       );
+
+      // Persist connections that were added during Phase 2
+      const newConnections = connectionsRef.current.slice(connectionsBefore);
+      if (newConnections.length > 0) {
+        addConnectionsMutation({
+          thoughtId: thoughtId as never,
+          connections: newConnections,
+        }).catch((err) => console.error('[Convex] Failed to save connections:', err));
+      }
     } catch (err) {
       console.error('[Convex] Failed to save thought:', err);
     }
-  }, [submit, createThought, createAIRun]);
+  }, [submit, createThought, addConnectionsMutation, createAIRun]);
 
   const handleNodeMove = useCallback((id: string, x: number, y: number) => {
     setNodes((prev) =>

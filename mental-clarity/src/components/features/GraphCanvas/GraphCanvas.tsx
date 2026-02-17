@@ -173,7 +173,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       const currentZoom = zoomRef.current;
       const currentPan = panRef.current;
 
-      const delta = -e.deltaY * 0.001;
+      const delta = -e.deltaY * 0.004;
       const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, currentZoom * (1 + delta)));
       const scale = newZoom / currentZoom;
 
@@ -227,10 +227,8 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
 
       const newX = state.initialNodeX + dx / zoom;
       const newY = state.initialNodeY + dy / zoom;
-      const clampedX = Math.max(-40, newX);
-      const clampedY = Math.max(-40, newY);
 
-      onNodeMove(state.nodeId, clampedX, clampedY);
+      onNodeMove(state.nodeId, newX, newY);
 
       // Emit screen-space position for drag-to-archive hit testing
       if (state.didMove) {

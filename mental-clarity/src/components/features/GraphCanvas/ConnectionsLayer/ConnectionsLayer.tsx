@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { ConnectionData, NodeData } from '@/types/graph';
+import type { ConnectionData, ConnectionType, NodeData } from '@/types/graph';
 import styles from './ConnectionsLayer.module.css';
 
 interface ConnectionsLayerProps {
@@ -13,6 +13,27 @@ interface TooltipState {
   label: string;
   type: string;
   strength: number;
+}
+
+/** Dash pattern per connection type */
+function getDashArray(type: ConnectionType): string | undefined {
+  switch (type) {
+    case 'semantic':
+    case 'similar':
+      return '6 4';       // short dash
+    case 'contrasts':
+      return '2 4';       // dotted
+    case 'causes':
+    case 'depends-on':
+      return '10 4 2 4';  // dash-dot
+    default:
+      return undefined;   // solid for direct, related, part-of
+  }
+}
+
+/** Whether this type gets an arrowhead (directional relationships) */
+function hasArrow(type: ConnectionType): boolean {
+  return type === 'causes' || type === 'depends-on' || type === 'part-of';
 }
 
 export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) {
@@ -45,15 +66,15 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
         const target = nodeMap.get(conn.targetId);
         if (!source || !target) return null;
 
-        const opacity = 0.2 + conn.strength * 0.6;
-        const strokeWidth = 1 + conn.strength * 2;
+        const opacity = 0.25 + conn.strength * 0.55;
+        const strokeWidth = 1 + conn.strength * 1.5;
+        const dashArray = getDashArray(conn.type);
 
         const mx = (source.x + target.x) / 2;
         const my = (source.y + target.y) / 2;
 
         return (
           <g key={conn.id}>
-            {/* Invisible wider hit area for hover */}
             <line
               x1={source.x} y1={source.y}
               x2={target.x} y2={target.y}
@@ -61,13 +82,12 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
               onMouseEnter={() => handleMouseEnter(conn, mx, my)}
               onMouseLeave={handleMouseLeave}
             />
-            {/* Visible connection line */}
             <line
               x1={source.x} y1={source.y}
               x2={target.x} y2={target.y}
               className={styles.connectionLine}
-              style={{ opacity, strokeWidth }}
-              markerEnd={conn.type !== 'related' && conn.type !== 'similar' ? 'url(#arrowhead)' : undefined}
+              style={{ opacity, strokeWidth, strokeDasharray: dashArray }}
+              markerEnd={hasArrow(conn.type) ? 'url(#arrowhead)' : undefined}
             />
             {conn.label && (
               <text
@@ -82,7 +102,6 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
         );
       })}
 
-      {/* Tooltip */}
       {tooltip && (
         <foreignObject
           x={tooltip.x - 80}
