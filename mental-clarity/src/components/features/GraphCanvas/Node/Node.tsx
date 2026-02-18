@@ -12,6 +12,7 @@ interface NodeProps {
   x: number;
   y: number;
   isSelected?: boolean;
+  isDimmed?: boolean;
   isDragging?: boolean;
   onDragStart: (id: string, e: React.MouseEvent) => void;
 }
@@ -39,6 +40,7 @@ export function Node({
   x,
   y,
   isSelected = false,
+  isDimmed = false,
   isDragging = false,
   onDragStart,
 }: NodeProps) {
@@ -61,6 +63,7 @@ export function Node({
         category && styles[category],
         isMultiParent && styles.multiParent,
         isSelected && styles.selected,
+        isDimmed && styles.dimmed,
         isDragging && styles.dragging,
       )}
       style={{

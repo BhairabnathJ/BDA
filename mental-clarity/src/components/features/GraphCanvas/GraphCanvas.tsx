@@ -11,6 +11,8 @@ import styles from './GraphCanvas.module.css';
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 const CLICK_THRESHOLD_PX = 3;
+const DOUBLE_CLICK_MS = 400;
+const DRAG_HOLD_MS = 200;
 const MOMENTUM_FRICTION = 0.92;
 const MOMENTUM_MIN_VELOCITY = 0.5;
 
@@ -18,12 +20,21 @@ interface GraphCanvasProps {
   nodes: NodeData[];
   connections?: ConnectionData[];
   onNodeMove: (id: string, x: number, y: number) => void;
-  onNodeClick?: (id: string) => void;
+  onNodeSingleClick?: (id: string) => void;
+  onNodeDoubleClick?: (id: string) => void;
   onNodeDragMove?: (nodeId: string, screenX: number, screenY: number) => void;
   onNodeDrop?: (nodeId: string, screenX: number, screenY: number) => void;
 }
 
-export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop }: GraphCanvasProps) {
+export function GraphCanvas({
+  nodes,
+  connections = [],
+  onNodeMove,
+  onNodeSingleClick,
+  onNodeDoubleClick,
+  onNodeDragMove,
+  onNodeDrop,
+}: GraphCanvasProps) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
@@ -40,6 +51,8 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
   const lastMouse = useRef({ x: 0, y: 0, t: 0 });
   const velocity = useRef({ x: 0, y: 0 });
   const momentumRaf = useRef<number>(0);
+  const clickTimerRef = useRef<number | null>(null);
+  const lastClickRef = useRef<{ nodeId: string; at: number } | null>(null);
 
   // Node drag refs
   const nodeDragState = useRef<{
@@ -50,6 +63,45 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
     initialNodeY: number;
     didMove: boolean;
   } | null>(null);
+  const pendingActivationRef = useRef<{
+    nodeId: string;
+    initialMouseX: number;
+    initialMouseY: number;
+    initialNodeX: number;
+    initialNodeY: number;
+    timerId: number;
+  } | null>(null);
+
+  const queueSingleClick = useCallback((nodeId: string, now: number) => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+
+    lastClickRef.current = { nodeId, at: now };
+    clickTimerRef.current = window.setTimeout(() => {
+      onNodeSingleClick?.(nodeId);
+      clickTimerRef.current = null;
+    }, DOUBLE_CLICK_MS + 10);
+  }, [onNodeSingleClick]);
+
+  const handleNodeActivate = useCallback((nodeId: string) => {
+    const now = Date.now();
+    const last = lastClickRef.current;
+    setSelectedNodeId(nodeId);
+
+    if (last && last.nodeId === nodeId && now - last.at <= DOUBLE_CLICK_MS) {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      lastClickRef.current = null;
+      onNodeDoubleClick?.(nodeId);
+      return;
+    }
+
+    queueSingleClick(nodeId, now);
+  }, [onNodeDoubleClick, queueSingleClick]);
 
   // --- Canvas pan handlers ---
 
@@ -139,6 +191,13 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
   useEffect(() => {
     return () => {
       if (momentumRaf.current) cancelAnimationFrame(momentumRaf.current);
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
+      const pending = pendingActivationRef.current;
+      if (pending) {
+        window.clearTimeout(pending.timerId);
+      }
     };
   }, []);
 
@@ -197,18 +256,35 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
 
       const node = nodes.find((n) => n.id === nodeId);
       if (!node) return;
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
 
-      nodeDragState.current = {
+      const pending = pendingActivationRef.current;
+      if (pending) {
+        window.clearTimeout(pending.timerId);
+        pendingActivationRef.current = null;
+      }
+
+      pendingActivationRef.current = {
         nodeId,
-        initialMouseX: e.clientX,
-        initialMouseY: e.clientY,
+        initialMouseX: mouseX,
+        initialMouseY: mouseY,
         initialNodeX: node.x,
         initialNodeY: node.y,
-        didMove: false,
+        timerId: window.setTimeout(() => {
+          nodeDragState.current = {
+            nodeId,
+            initialMouseX: mouseX,
+            initialMouseY: mouseY,
+            initialNodeX: node.x,
+            initialNodeY: node.y,
+            didMove: false,
+          };
+          pendingActivationRef.current = null;
+          setDraggingNodeId(nodeId);
+          setDragging(nodeId);
+        }, DRAG_HOLD_MS),
       };
-
-      setDraggingNodeId(nodeId);
-      setDragging(nodeId);
     },
     [nodes, setDragging],
   );
@@ -237,14 +313,20 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
     };
 
     const handleDocMouseUp = (e: MouseEvent) => {
+      const pending = pendingActivationRef.current;
+      if (pending) {
+        window.clearTimeout(pending.timerId);
+        pendingActivationRef.current = null;
+        handleNodeActivate(pending.nodeId);
+      }
+
       const state = nodeDragState.current;
       if (state) {
         if (state.didMove) {
           // Emit drop position for archive zone hit testing
           onNodeDrop?.(state.nodeId, e.clientX, e.clientY);
         } else {
-          setSelectedNodeId(state.nodeId);
-          onNodeClick?.(state.nodeId);
+          handleNodeActivate(state.nodeId);
         }
       }
 
@@ -259,7 +341,7 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove, onNodeClick, onNodeDragMove, onNodeDrop, setDragging]);
+  }, [zoom, onNodeMove, onNodeDragMove, onNodeDrop, setDragging, handleNodeActivate]);
 
   const hasNodes = nodes.length > 0;
 
@@ -284,12 +366,13 @@ export function GraphCanvas({ nodes, connections = [], onNodeMove, onNodeClick, 
           transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
         }}
       >
-        <ConnectionsLayer connections={connections} nodes={nodes} />
+        <ConnectionsLayer connections={connections} nodes={nodes} highlightedNodeId={selectedNodeId} />
         {nodes.map((node) => (
           <Node
             key={node.id}
             {...node}
             isSelected={node.id === selectedNodeId}
+            isDimmed={selectedNodeId !== null && node.id !== selectedNodeId}
             isDragging={node.id === draggingNodeId}
             onDragStart={handleNodeDragStart}
           />

@@ -295,6 +295,9 @@ function App() {
   const handleNavigateNode = useCallback((nodeId: string) => {
     setDetailNodeId(nodeId);
   }, []);
+  const handleGraphDoubleClick = useCallback((nodeId: string) => {
+    setDetailNodeId(nodeId);
+  }, []);
 
   const handleUpdatePage = useCallback((pageId: string, updates: Partial<PageData>) => {
     setPages((prev) =>
@@ -377,7 +380,8 @@ function App() {
         nodes={mainNodes}
         connections={mainConnections}
         onNodeMove={handleNodeMove}
-        onNodeClick={setDetailNodeId}
+        onNodeSingleClick={setDetailNodeId}
+        onNodeDoubleClick={handleGraphDoubleClick}
         onNodeDragMove={handleNodeDragMove}
         onNodeDrop={handleNodeDrop}
       />

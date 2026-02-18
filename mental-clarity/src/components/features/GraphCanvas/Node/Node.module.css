@@ -57,6 +57,10 @@
   z-index: 2;
 }
 
+.dimmed {
+  opacity: 0.4;
+}
+
 .dragging {
   cursor: grabbing;
   background: rgba(245, 241, 232, 0.32);

@@ -5,6 +5,7 @@ import styles from './ConnectionsLayer.module.css';
 interface ConnectionsLayerProps {
   connections: ConnectionData[];
   nodes: NodeData[];
+  highlightedNodeId?: string | null;
 }
 
 interface TooltipState {
@@ -36,7 +37,7 @@ function hasArrow(type: ConnectionType): boolean {
   return type === 'causes' || type === 'depends-on' || type === 'part-of';
 }
 
-export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) {
+export function ConnectionsLayer({ connections, nodes, highlightedNodeId = null }: ConnectionsLayerProps) {
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
@@ -66,7 +67,15 @@ export function ConnectionsLayer({ connections, nodes }: ConnectionsLayerProps) 
         const target = nodeMap.get(conn.targetId);
         if (!source || !target) return null;
 
-        const opacity = 0.4 + conn.strength * 0.4;
+        const connectedToHighlight =
+          highlightedNodeId &&
+          (conn.sourceId === highlightedNodeId || conn.targetId === highlightedNodeId);
+        const opacityBase = 0.4 + conn.strength * 0.4;
+        const opacity = highlightedNodeId
+          ? connectedToHighlight
+            ? Math.min(1, opacityBase + 0.25)
+            : opacityBase * 0.35
+          : opacityBase;
         const strokeWidth = 1.5 + conn.strength * 1.5;
         const dashArray = getDashArray(conn.type);
 
