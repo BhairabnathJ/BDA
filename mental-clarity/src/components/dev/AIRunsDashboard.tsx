@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import type { AIRunMeta, PromptMetricsSummary } from '@/types/graph';
 
@@ -214,9 +214,25 @@ const COLUMN_HEADERS = [
 
 export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
   const rawRuns = useQuery(api.aiRuns.listRuns, { limit: 200 });
+  const anyApi = api as any;
+  const repairPreview = useQuery(anyApi.thoughts.previewHierarchyRepair as any, {});
+  const applyHierarchyRepair = useMutation(anyApi.thoughts.applyHierarchyRepair as any) as () => Promise<{
+    applied: boolean;
+    updatedThoughts: number;
+    updatedNodeOccurrences: number;
+    repairsApplied: number;
+  }>;
+
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [chartMetric, setChartMetric] = useState<'durationMs' | 'nodeCount'>('durationMs');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairResult, setRepairResult] = useState<{
+    applied: boolean;
+    updatedThoughts: number;
+    updatedNodeOccurrences: number;
+    repairsApplied: number;
+  } | null>(null);
 
   const runs = useMemo(() => {
     if (!rawRuns) return [];
@@ -228,6 +244,18 @@ export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
   const handleExport = useCallback(() => {
     exportCSV(runs);
   }, [runs]);
+
+  const handleApplyRepair = useCallback(async () => {
+    setRepairBusy(true);
+    try {
+      const result = await applyHierarchyRepair();
+      setRepairResult(result);
+    } catch (error) {
+      console.error('[HierarchyRepair] Failed to apply repair', error);
+    } finally {
+      setRepairBusy(false);
+    }
+  }, [applyHierarchyRepair]);
 
   return (
     <div style={{
@@ -340,6 +368,69 @@ export function AIRunsDashboard({ onClose }: { onClose: () => void }) {
             <option value="durationMs">Duration (ms)</option>
             <option value="nodeCount">Node Count</option>
           </select>
+        </div>
+
+        <div
+          style={{
+            marginBottom: 16,
+            border: '1px solid rgba(168,197,209,0.22)',
+            borderRadius: 8,
+            background: 'rgba(168,197,209,0.05)',
+            padding: '12px 14px',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+            Hierarchy Repair (Preview + Apply)
+          </div>
+          {repairPreview ? (
+            <>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, marginBottom: 8 }}>
+                <span>Total nodes: <strong>{repairPreview.totalNodes}</strong></span>
+                <span>Umbrellas: <strong>{repairPreview.umbrellaCount}</strong></span>
+                <span>Subnodes: <strong>{repairPreview.subnodeCount}</strong></span>
+                <span>Needs repair: <strong>{repairPreview.nodesNeedingRepair}</strong></span>
+                <span>Affected thoughts: <strong>{repairPreview.affectedThoughts}</strong></span>
+              </div>
+              <button
+                onClick={handleApplyRepair}
+                disabled={repairBusy || repairPreview.nodesNeedingRepair === 0}
+                style={{
+                  border: '1px solid rgba(139,165,184,0.45)',
+                  background: repairPreview.nodesNeedingRepair > 0 ? 'rgba(168,197,209,0.14)' : 'rgba(0,0,0,0.04)',
+                  color: 'var(--color-text-primary)',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  padding: '6px 10px',
+                  cursor: repairBusy || repairPreview.nodesNeedingRepair === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {repairBusy ? 'Applying...' : 'Apply hierarchy repair'}
+              </button>
+              {repairResult && (
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                  Applied: {String(repairResult.applied)} · Thoughts updated: {repairResult.updatedThoughts} ·
+                  Node patches: {repairResult.updatedNodeOccurrences} · Repairs: {repairResult.repairsApplied}
+                </div>
+              )}
+              {repairPreview.repairs.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--color-text-disabled)', maxHeight: 120, overflow: 'auto' }}>
+                  {repairPreview.repairs.slice(0, 10).map((repair: {
+                    nodeId: string;
+                    label: string;
+                    beforeParentIds: string[];
+                    afterParentIds: string[];
+                    reason: string;
+                  }) => (
+                    <div key={`${repair.nodeId}-${repair.reason}`} style={{ marginBottom: 4 }}>
+                      {repair.label} · {repair.reason} · [{repair.beforeParentIds.join(', ')}] -&gt; [{repair.afterParentIds.join(', ')}]
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--color-text-disabled)' }}>Loading repair preview...</div>
+          )}
         </div>
 
         {/* Chart */}
