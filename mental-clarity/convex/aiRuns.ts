@@ -13,6 +13,14 @@ export const createRun = mutation({
     aiStatus: v.string(),
     errorMessage: v.optional(v.string()),
     meta: v.optional(v.any()),
+    inputHash: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    mode: v.optional(v.string()),
+    backend: v.optional(v.string()),
+    quant: v.optional(v.string()),
+    promptProfileId: v.optional(v.string()),
+    artifacts: v.optional(v.any()),
+    quality: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const durationMs = args.finishedAt - args.startedAt;
@@ -28,6 +36,14 @@ export const createRun = mutation({
       aiStatus: args.aiStatus,
       errorMessage: args.errorMessage,
       meta: args.meta,
+      inputHash: args.inputHash,
+      sessionId: args.sessionId,
+      mode: args.mode,
+      backend: args.backend,
+      quant: args.quant,
+      promptProfileId: args.promptProfileId,
+      artifacts: args.artifacts,
+      quality: args.quality,
     });
   },
 });

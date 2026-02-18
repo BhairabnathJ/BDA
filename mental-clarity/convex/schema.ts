@@ -20,5 +20,13 @@ export default defineSchema({
     aiStatus: v.string(),
     errorMessage: v.optional(v.string()),
     meta: v.optional(v.any()),
+    inputHash: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    mode: v.optional(v.string()),
+    backend: v.optional(v.string()),
+    quant: v.optional(v.string()),
+    promptProfileId: v.optional(v.string()),
+    artifacts: v.optional(v.any()),
+    quality: v.optional(v.any()),
   }),
 });
