@@ -118,6 +118,15 @@
   background: var(--gradient-personal);
 }
 
+.scopeChild {
+  border-width: 2px;
+}
+
+.scopeRelated {
+  border-style: dashed;
+  opacity: 0.88;
+}
+
 .label {
   font-size: 15px;
   font-weight: 500;
@@ -194,5 +203,5 @@
 .node.personal,
 .node.umbrella,
 .node.multiParent {
-  background: transparent !important;
+  background-blend-mode: normal;
 }

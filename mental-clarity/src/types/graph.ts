@@ -2,6 +2,7 @@
 
 export type NodeKind = 'umbrella' | 'subnode';
 export type NodeCategory = 'organic' | 'technical' | 'creative' | 'learning' | 'personal';
+export type ImmersiveNodeScope = 'child' | 'related';
 
 export interface NodeData {
   id: string;
@@ -16,6 +17,9 @@ export interface NodeData {
   archived?: boolean;
   thoughtId?: string;
   createdFromDumpId?: string;
+  mentionCount?: number;
+  lastAccessedAt?: number;
+  immersiveScope?: ImmersiveNodeScope;
   createdAt: number;
   updatedAt: number;
 }
@@ -54,6 +58,7 @@ export interface ConnectionData {
   targetId: string;
   label: string;
   type: ConnectionType;
+  justification?: string;
   strength: number;   // 0.1 – 1.0
   createdAt: number;
 }
@@ -90,6 +95,7 @@ export interface ExtractedRelationship {
   targetLabel: string;
   label: string;
   type: ConnectionType;
+  justification?: string;
   strength: number;
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/utils/cn';
 import { EmptyState } from './EmptyState';
 import { Node } from './Node';
@@ -17,22 +17,37 @@ const MOMENTUM_FRICTION = 0.92;
 const MOMENTUM_MIN_VELOCITY = 0.5;
 const DEFAULT_SPREAD = 420;
 
+export type GraphCanvasMode = 'main' | 'immersive';
+export type GraphTransitionPhase = 'idle' | 'entering' | 'exiting';
+
 interface GraphCanvasProps {
+  mode?: GraphCanvasMode;
+  immersiveLabel?: string;
+  transitionPhase?: GraphTransitionPhase;
+  transitionOrigin?: { x: number; y: number };
+  layoutEnabled?: boolean;
   nodes: NodeData[];
   connections?: ConnectionData[];
   onNodeMove: (id: string, x: number, y: number) => void;
-  onNodeSingleClick?: (id: string) => void;
-  onNodeDoubleClick?: (id: string) => void;
+  onNodeSingleClick?: (id: string, mode: GraphCanvasMode) => void;
+  onNodeDoubleClick?: (id: string, mode: GraphCanvasMode, origin: { x: number; y: number }) => void;
+  onBackFromImmersive?: () => void;
   onNodeDragMove?: (nodeId: string, screenX: number, screenY: number) => void;
   onNodeDrop?: (nodeId: string, screenX: number, screenY: number) => void;
 }
 
 export function GraphCanvas({
+  mode = 'main',
+  immersiveLabel,
+  transitionPhase = 'idle',
+  transitionOrigin,
+  layoutEnabled = true,
   nodes,
   connections = [],
   onNodeMove,
   onNodeSingleClick,
   onNodeDoubleClick,
+  onBackFromImmersive,
   onNodeDragMove,
   onNodeDrop,
 }: GraphCanvasProps) {
@@ -50,6 +65,7 @@ export function GraphCanvas({
     width: typeof window === 'undefined' ? 1200 : window.innerWidth,
     height: typeof window === 'undefined' ? 800 : window.innerHeight,
   });
+  const autoLayoutEnabled = layoutEnabled && mode === 'main';
 
   const {
     isComputing,
@@ -60,7 +76,7 @@ export function GraphCanvas({
     nodes,
     connections,
     onNodeMove,
-    enabled: true,
+    enabled: autoLayoutEnabled,
     lockPositions,
     repulsionStrength: layoutSpread,
     canvasWidth: canvasSize.width,
@@ -73,7 +89,6 @@ export function GraphCanvas({
   const lastMouse = useRef({ x: 0, y: 0, t: 0 });
   const velocity = useRef({ x: 0, y: 0 });
   const momentumRaf = useRef<number>(0);
-  const clickTimerRef = useRef<number | null>(null);
   const lastClickRef = useRef<{ nodeId: string; at: number } | null>(null);
 
   const nodeDragState = useRef<{
@@ -93,6 +108,12 @@ export function GraphCanvas({
     initialNodeY: number;
     timerId: number;
   } | null>(null);
+
+  useEffect(() => {
+    setSelectedNodeId(null);
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
+  }, [mode]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -120,36 +141,32 @@ export function GraphCanvas({
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, []);
 
-  const queueSingleClick = useCallback((nodeId: string, now: number) => {
-    if (clickTimerRef.current !== null) {
-      window.clearTimeout(clickTimerRef.current);
-      clickTimerRef.current = null;
-    }
+  const resolveOrigin = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
+    const element = containerRef.current;
+    if (!element) return { x: 0.5, y: 0.5 };
+    const rect = element.getBoundingClientRect();
+    const x = (clientX - rect.left) / Math.max(rect.width, 1);
+    const y = (clientY - rect.top) / Math.max(rect.height, 1);
+    return {
+      x: Math.max(0, Math.min(1, x)),
+      y: Math.max(0, Math.min(1, y)),
+    };
+  }, []);
 
-    lastClickRef.current = { nodeId, at: now };
-    clickTimerRef.current = window.setTimeout(() => {
-      onNodeSingleClick?.(nodeId);
-      clickTimerRef.current = null;
-    }, DOUBLE_CLICK_MS + 10);
-  }, [onNodeSingleClick]);
-
-  const handleNodeActivate = useCallback((nodeId: string) => {
+  const handleNodeActivate = useCallback((nodeId: string, clientX: number, clientY: number) => {
     const now = Date.now();
     const last = lastClickRef.current;
     setSelectedNodeId(nodeId);
 
     if (last && last.nodeId === nodeId && now - last.at <= DOUBLE_CLICK_MS) {
-      if (clickTimerRef.current !== null) {
-        window.clearTimeout(clickTimerRef.current);
-        clickTimerRef.current = null;
-      }
       lastClickRef.current = null;
-      onNodeDoubleClick?.(nodeId);
+      onNodeDoubleClick?.(nodeId, mode, resolveOrigin(clientX, clientY));
       return;
     }
 
-    queueSingleClick(nodeId, now);
-  }, [onNodeDoubleClick, queueSingleClick]);
+    lastClickRef.current = { nodeId, at: now };
+    onNodeSingleClick?.(nodeId, mode);
+  }, [mode, onNodeDoubleClick, onNodeSingleClick, resolveOrigin]);
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent) => {
@@ -233,9 +250,6 @@ export function GraphCanvas({
   useEffect(() => {
     return () => {
       if (momentumRaf.current) cancelAnimationFrame(momentumRaf.current);
-      if (clickTimerRef.current !== null) {
-        window.clearTimeout(clickTimerRef.current);
-      }
       const pending = pendingActivationRef.current;
       if (pending) {
         window.clearTimeout(pending.timerId);
@@ -353,16 +367,18 @@ export function GraphCanvas({
       if (pending) {
         window.clearTimeout(pending.timerId);
         pendingActivationRef.current = null;
-        handleNodeActivate(pending.nodeId);
+        handleNodeActivate(pending.nodeId, event.clientX, event.clientY);
       }
 
       const state = nodeDragState.current;
       if (state) {
         if (state.didMove) {
-          pinNode(state.nodeId);
+          if (autoLayoutEnabled) {
+            pinNode(state.nodeId);
+          }
           onNodeDrop?.(state.nodeId, event.clientX, event.clientY);
         } else {
-          handleNodeActivate(state.nodeId);
+          handleNodeActivate(state.nodeId, event.clientX, event.clientY);
         }
       }
 
@@ -377,20 +393,29 @@ export function GraphCanvas({
       document.removeEventListener('mousemove', handleDocMouseMove);
       document.removeEventListener('mouseup', handleDocMouseUp);
     };
-  }, [zoom, onNodeMove, onNodeDragMove, onNodeDrop, pinNode, setLayoutDragging, handleNodeActivate]);
+  }, [zoom, onNodeMove, onNodeDragMove, onNodeDrop, pinNode, setLayoutDragging, handleNodeActivate, autoLayoutEnabled]);
 
   const stopCanvasPropagation = useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
   }, []);
 
   const hasNodes = nodes.length > 0;
+  const dynamicOrigin = useMemo(
+    () => ({
+      '--immersion-origin-x': `${((transitionOrigin?.x ?? 0.5) * 100).toFixed(2)}%`,
+      '--immersion-origin-y': `${((transitionOrigin?.y ?? 0.5) * 100).toFixed(2)}%`,
+    }) as React.CSSProperties,
+    [transitionOrigin],
+  );
 
   return (
     <div
       ref={containerRef}
+      style={dynamicOrigin}
       className={cn(
         'bg-dot-grid',
         styles.container,
+        mode === 'immersive' && styles.immersive,
         (isPanning || hasMomentum) && !draggingNodeId && styles.panning,
         draggingNodeId && styles.draggingNode,
       )}
@@ -400,49 +425,64 @@ export function GraphCanvas({
       onMouseLeave={handleMouseUp}
       onClick={handleCanvasClick}
     >
-      <div
-        className={styles.layoutControls}
-        onMouseDown={stopCanvasPropagation}
-        onClick={stopCanvasPropagation}
-        onWheel={stopCanvasPropagation}
-      >
-        <button
-          type="button"
-          className={styles.controlButton}
-          onClick={() => resetLayout()}
-          disabled={nodes.length < 2 || lockPositions}
+      {mode === 'immersive' && (
+        <div
+          className={styles.scopeHud}
+          onMouseDown={stopCanvasPropagation}
+          onClick={stopCanvasPropagation}
         >
-          Reset Layout
-        </button>
+          <button type="button" className={styles.backButton} onClick={onBackFromImmersive}>
+            Back
+          </button>
+          <span className={styles.scopeLabel}>{immersiveLabel ?? 'All nodes > Immersive view'}</span>
+        </div>
+      )}
 
-        <label className={styles.controlLabel}>
-          <span>Spread</span>
-          <input
-            className={styles.slider}
-            type="range"
-            min={120}
-            max={780}
-            step={10}
-            value={layoutSpread}
-            onChange={(event) => setLayoutSpread(Number(event.target.value))}
-            disabled={lockPositions}
-          />
-          <span className={styles.sliderValue}>{layoutSpread}</span>
-        </label>
+      {autoLayoutEnabled && (
+        <div
+          className={styles.layoutControls}
+          onMouseDown={stopCanvasPropagation}
+          onClick={stopCanvasPropagation}
+          onWheel={stopCanvasPropagation}
+        >
+          <button
+            type="button"
+            className={styles.controlButton}
+            onClick={() => resetLayout()}
+            disabled={nodes.length < 2 || lockPositions}
+          >
+            Reset Layout
+          </button>
 
-        <label className={styles.toggleLabel}>
-          <input
-            type="checkbox"
-            checked={lockPositions}
-            onChange={(event) => setLockPositions(event.target.checked)}
-          />
-          <span>Lock positions</span>
-        </label>
+          <label className={styles.controlLabel}>
+            <span>Spread</span>
+            <input
+              className={styles.slider}
+              type="range"
+              min={120}
+              max={780}
+              step={10}
+              value={layoutSpread}
+              onChange={(event) => setLayoutSpread(Number(event.target.value))}
+              disabled={lockPositions}
+            />
+            <span className={styles.sliderValue}>{layoutSpread}</span>
+          </label>
 
-        <span className={cn(styles.layoutStatus, !isComputing && styles.layoutStatusIdle)}>
-          {isComputing ? 'Arranging...' : 'Layout ready'}
-        </span>
-      </div>
+          <label className={styles.toggleLabel}>
+            <input
+              type="checkbox"
+              checked={lockPositions}
+              onChange={(event) => setLockPositions(event.target.checked)}
+            />
+            <span>Lock positions</span>
+          </label>
+
+          <span className={cn(styles.layoutStatus, !isComputing && styles.layoutStatusIdle)}>
+            {isComputing ? 'Arranging...' : 'Layout ready'}
+          </span>
+        </div>
+      )}
 
       <div
         className={styles.surface}
@@ -450,18 +490,27 @@ export function GraphCanvas({
           transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
         }}
       >
-        <ConnectionsLayer connections={connections} nodes={nodes} highlightedNodeId={selectedNodeId} />
-        {nodes.map((node) => (
-          <Node
-            key={node.id}
-            {...node}
-            isSelected={node.id === selectedNodeId}
-            isDimmed={selectedNodeId !== null && node.id !== selectedNodeId}
-            isDragging={node.id === draggingNodeId}
-            onDragStart={handleNodeDragStart}
-          />
-        ))}
+        <div
+          className={cn(
+            styles.surfaceMotion,
+            transitionPhase === 'entering' && styles.enteringImmersion,
+            transitionPhase === 'exiting' && styles.exitingImmersion,
+          )}
+        >
+          <ConnectionsLayer connections={connections} nodes={nodes} highlightedNodeId={selectedNodeId} />
+          {nodes.map((node) => (
+            <Node
+              key={node.id}
+              {...node}
+              isSelected={node.id === selectedNodeId}
+              isDimmed={selectedNodeId !== null && node.id !== selectedNodeId}
+              isDragging={node.id === draggingNodeId}
+              onDragStart={handleNodeDragStart}
+            />
+          ))}
+        </div>
       </div>
+
       <div className={cn(styles.emptyStateWrapper, hasNodes && styles.hidden)}>
         <EmptyState />
       </div>

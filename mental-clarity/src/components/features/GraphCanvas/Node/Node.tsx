@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { cn } from '@/utils/cn';
-import type { NodeKind } from '@/types/graph';
+import type { ImmersiveNodeScope, NodeKind } from '@/types/graph';
 import { computeNodeSize } from './sizing';
 import styles from './Node.module.css';
 
@@ -10,6 +10,8 @@ interface NodeProps {
   kind?: NodeKind;
   category?: string;
   parentIds?: string[];
+  immersiveScope?: ImmersiveNodeScope;
+  mentionCount?: number;
   x: number;
   y: number;
   isSelected?: boolean;
@@ -24,6 +26,8 @@ export function Node({
   kind,
   category,
   parentIds,
+  immersiveScope,
+  mentionCount,
   x,
   y,
   isSelected = false,
@@ -31,7 +35,7 @@ export function Node({
   isDragging = false,
   onDragStart,
 }: NodeProps) {
-  const size = useMemo(() => computeNodeSize(label, kind), [label, kind]);
+  const size = useMemo(() => computeNodeSize(label, kind, mentionCount), [label, kind, mentionCount]);
   const isMultiParent = (parentIds?.length ?? 0) > 1;
   const safeX = Number.isFinite(x) ? x : 0;
   const safeY = Number.isFinite(y) ? y : 0;
@@ -50,6 +54,8 @@ export function Node({
         styles.node,
         kind === 'umbrella' && styles.umbrella,
         category && styles[category],
+        immersiveScope === 'child' && styles.scopeChild,
+        immersiveScope === 'related' && styles.scopeRelated,
         isMultiParent && styles.multiParent,
         isSelected && styles.selected,
         isDimmed && styles.dimmed,

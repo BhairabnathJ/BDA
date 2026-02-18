@@ -2,22 +2,47 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { GraphCanvas } from '@/components/features/GraphCanvas';
+import type { GraphCanvasMode, GraphTransitionPhase } from '@/components/features/GraphCanvas';
 import { InputBar } from '@/components/layout/InputBar';
 import { NodeDetailPanel } from '@/components/features/GraphCanvas/NodeDetailPanel';
 import { ArchivePanel } from '@/components/features/ArchivePanel';
 import { ArchiveDropZone } from '@/components/features/ArchiveDropZone';
 import { AIRunsDashboard } from '@/components/dev/AIRunsDashboard';
 import type { EdgeData } from '@/components/features/GraphCanvas/Node';
-import type { ConnectionData, NodeData, PageData, DumpData, ExtractedTask } from '@/types/graph';
+import type { ConnectionData, NodeData, PageData, DumpData, ExtractedTask, ImmersiveNodeScope } from '@/types/graph';
 import { useAIExtraction } from '@/hooks/useAIExtraction';
 import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
+
+const IMMERSION_ENTER_MS = 560;
+const IMMERSION_EXIT_MS = 420;
 
 interface NodeStatRow {
   nodeId: string;
   label: string;
   kind: string;
   mentionCount: number;
+}
+
+type GraphScope =
+  | { mode: 'main' }
+  | { mode: 'immersive'; umbrellaId: string };
+
+type ImmersiveNode = NodeData & { immersiveScope?: ImmersiveNodeScope };
+
+function sanitizeNodeCoordinates(node: NodeData, index: number, total: number): NodeData {
+  const width = typeof window === 'undefined' ? 1200 : window.innerWidth;
+  const height = typeof window === 'undefined' ? 800 : window.innerHeight;
+  const angle = (index / Math.max(total, 1)) * Math.PI * 2;
+  const radius = Math.min(Math.max(220, total * 16), 900);
+  const fallbackX = width * 0.5 + Math.cos(angle) * radius;
+  const fallbackY = height * 0.5 + Math.sin(angle) * radius;
+
+  return {
+    ...node,
+    x: Number.isFinite(node.x) ? node.x : fallbackX,
+    y: Number.isFinite(node.y) ? node.y : fallbackY,
+  };
 }
 
 function selectMainCanvasNodes(
@@ -35,13 +60,21 @@ function selectMainCanvasNodes(
       return a.label.localeCompare(b.label);
     });
 
-  const topUmbrellaCount = Math.min(10, Math.max(4, umbrellas.length));
+  const topUmbrellaCount = Math.min(8, Math.max(4, umbrellas.length));
   const topUmbrellas = umbrellas.slice(0, topUmbrellaCount);
   const visibleNodeIds = new Set(topUmbrellas.map((node) => node.id));
 
-  const recentDetailNodes = activeNodes.filter(
-    (node) => node.kind !== 'umbrella' && node.thoughtId && recentThoughtIds.has(node.thoughtId),
-  );
+  const recentDetailNodes = activeNodes
+    .filter(
+      (node) => node.kind !== 'umbrella' && node.thoughtId && recentThoughtIds.has(node.thoughtId),
+    )
+    .sort((a, b) => {
+      const mentionDelta = (mentionCountByNodeId.get(b.id) ?? 0) - (mentionCountByNodeId.get(a.id) ?? 0);
+      if (mentionDelta !== 0) return mentionDelta;
+      return b.updatedAt - a.updatedAt;
+    })
+    .slice(0, 32);
+
   for (const node of recentDetailNodes) {
     visibleNodeIds.add(node.id);
   }
@@ -53,19 +86,97 @@ function selectMainCanvasNodes(
   return activeNodes.filter((node) => visibleNodeIds.has(node.id));
 }
 
-function sanitizeNodeCoordinates(node: NodeData, index: number, total: number): NodeData {
-  const width = typeof window === 'undefined' ? 1200 : window.innerWidth;
-  const height = typeof window === 'undefined' ? 800 : window.innerHeight;
-  const angle = (index / Math.max(total, 1)) * Math.PI * 2;
-  const radius = Math.min(Math.max(220, total * 16), 900);
-  const fallbackX = width * 0.5 + Math.cos(angle) * radius;
-  const fallbackY = height * 0.5 + Math.sin(angle) * radius;
+function getImmersiveScopeHybrid(
+  activeNodes: NodeData[],
+  connections: ConnectionData[],
+  umbrellaId: string,
+): { children: NodeData[]; related: NodeData[] } {
+  const children = activeNodes.filter(
+    (node) => node.id !== umbrellaId && (node.parentIds ?? []).includes(umbrellaId),
+  );
+  const childIdSet = new Set(children.map((node) => node.id));
 
-  return {
-    ...node,
-    x: Number.isFinite(node.x) ? node.x : fallbackX,
-    y: Number.isFinite(node.y) ? node.y : fallbackY,
+  const relatedIds = new Set<string>();
+  for (const connection of connections) {
+    if (connection.sourceId === umbrellaId && connection.targetId !== umbrellaId) {
+      relatedIds.add(connection.targetId);
+    }
+    if (connection.targetId === umbrellaId && connection.sourceId !== umbrellaId) {
+      relatedIds.add(connection.sourceId);
+    }
+  }
+
+  const related = activeNodes
+    .filter((node) =>
+      node.id !== umbrellaId &&
+      relatedIds.has(node.id) &&
+      !childIdSet.has(node.id),
+    )
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return { children, related };
+}
+
+function layoutRing(
+  nodes: NodeData[],
+  centerX: number,
+  centerY: number,
+  baseRadius: number,
+  minChordLength: number,
+  scope: ImmersiveNodeScope,
+): ImmersiveNode[] {
+  if (nodes.length === 0) return [];
+
+  const perRing = Math.max(6, Math.floor((2 * Math.PI * baseRadius) / minChordLength));
+  const result: ImmersiveNode[] = [];
+  let index = 0;
+
+  while (index < nodes.length) {
+    const ring = Math.floor(index / perRing);
+    const ringStart = ring * perRing;
+    const ringCount = Math.min(perRing, nodes.length - ringStart);
+    const ringRadius = baseRadius + ring * 120;
+
+    const localIndex = index - ringStart;
+    const angle = (localIndex / Math.max(ringCount, 1)) * Math.PI * 2 - Math.PI / 2;
+    const x = centerX + Math.cos(angle) * ringRadius;
+    const y = centerY + Math.sin(angle) * ringRadius;
+    const node = nodes[index];
+    result.push({
+      ...node,
+      x,
+      y,
+      immersiveScope: scope,
+    });
+    index += 1;
+  }
+
+  return result;
+}
+
+function buildImmersiveLayout(
+  umbrella: NodeData,
+  children: NodeData[],
+  related: NodeData[],
+): ImmersiveNode[] {
+  const width = typeof window === 'undefined' ? 1280 : window.innerWidth;
+  const height = typeof window === 'undefined' ? 800 : window.innerHeight;
+  const centerX = width * 0.5;
+  const centerY = height * 0.5;
+
+  const sortedChildren = [...children].sort((a, b) => b.updatedAt - a.updatedAt || a.label.localeCompare(b.label));
+  const sortedRelated = [...related].sort((a, b) => b.updatedAt - a.updatedAt || a.label.localeCompare(b.label));
+
+  const root: ImmersiveNode = {
+    ...umbrella,
+    x: centerX,
+    y: centerY,
   };
+
+  const childRing = layoutRing(sortedChildren, centerX, centerY, 220, 130, 'child');
+  const relatedRing = layoutRing(sortedRelated, centerX, centerY, 390, 140, 'related');
+
+  return [root, ...childRing, ...relatedRing];
 }
 
 function App() {
@@ -73,14 +184,17 @@ function App() {
   const [connections, setConnections] = useState<ConnectionData[]>([]);
   const [edges, setEdges] = useState<EdgeData[]>([]);
   const [pages, setPages] = useState<PageData[]>([]);
-  // Dumps track raw brain dump text history for context in future extractions
   const [, setDumps] = useState<DumpData[]>([]);
   const [tasks, setTasks] = useState<ExtractedTask[]>([]);
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
   const [showArchive, setShowArchive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isOverArchive, setIsOverArchive] = useState(false);
+  const [graphScope, setGraphScope] = useState<GraphScope>({ mode: 'main' });
+  const [transitionPhase, setTransitionPhase] = useState<GraphTransitionPhase>('idle');
+  const [transitionOrigin, setTransitionOrigin] = useState({ x: 0.5, y: 0.5 });
   const archiveZoneRef = useRef<HTMLButtonElement>(null);
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showDevDashboard, setShowDevDashboard] = useState(
     () => new URLSearchParams(window.location.search).get('dev') === '1',
   );
@@ -93,7 +207,6 @@ function App() {
   const savedThoughts = useQuery(api.thoughts.list);
   const nodeStats = useQuery((api as any).thoughts.listNodeStats as any, {}) as NodeStatRow[] | undefined;
 
-  // Refs to access latest state without re-creating graphCallbacks
   const nodesRef = useRef<NodeData[]>(nodes);
   const connectionsRef = useRef<ConnectionData[]>(connections);
   useEffect(() => {
@@ -103,7 +216,12 @@ function App() {
     connectionsRef.current = connections;
   });
 
-  // Dev dashboard hotkey: Ctrl+Shift+D
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'D') {
@@ -115,7 +233,6 @@ function App() {
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  // Hydrate local state from Convex on initial load
   const hydrated = useRef(false);
   useEffect(() => {
     if (hydrated.current || savedThoughts === undefined) return;
@@ -139,23 +256,13 @@ function App() {
     }
 
     if (rawNodes.length > 0) {
-      let sanitizedCount = 0;
-      const allNodes = rawNodes.map((node, index, arr) => {
-        const sanitized = sanitizeNodeCoordinates(node, index, arr.length);
-        if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) sanitizedCount += 1;
-        return sanitized;
-      });
-
+      const allNodes = rawNodes.map((node, index, arr) => sanitizeNodeCoordinates(node, index, arr.length));
       setNodes(allNodes);
       setConnections(allConnections);
       console.log(`[Convex] Hydrated ${allNodes.length} node(s), ${allConnections.length} connection(s)`);
-      if (sanitizedCount > 0) {
-        console.warn(`[Convex] Sanitized ${sanitizedCount} node coordinate(s) with invalid x/y values`);
-      }
     }
   }, [savedThoughts]);
 
-  // -- Graph Callbacks for 2-phase AI extraction --
   const graphCallbacks: GraphCallbacks = useMemo(() => ({
     addNodes: (newNodes: NodeData[]) =>
       setNodes((prev) => [...prev, ...newNodes]),
@@ -186,7 +293,6 @@ function App() {
     const result = await submit(text);
     if (!result) return;
 
-    // Log the AI run (fire-and-forget)
     logAIRun(createAIRun, {
       dumpText: result.rawText,
       startedAt: result.startedAt,
@@ -198,7 +304,6 @@ function App() {
       meta: result.meta,
     });
 
-    // Persist to Convex
     try {
       const newNodes = nodesRef.current.filter((n) => !n.thoughtId).slice(-result.nodeCount);
       const thoughtId = await createThought({
@@ -209,7 +314,6 @@ function App() {
       });
       const thoughtIdStr = thoughtId as string;
 
-      // Tag newly created nodes with thoughtId
       setNodes((prev) =>
         prev.map((n) =>
           !n.thoughtId && newNodes.some((rn) => rn.id === n.id)
@@ -218,7 +322,6 @@ function App() {
         ),
       );
 
-      // Persist connections that were added during Phase 2
       const newConnections = connectionsRef.current.slice(connectionsBefore);
       if (newConnections.length > 0) {
         addConnectionsMutation({
@@ -245,6 +348,24 @@ function App() {
       ),
     );
   }, []);
+
+  const markNodeAccess = useCallback((id: string) => {
+    const now = Date.now();
+    const node = nodesRef.current.find((n) => n.id === id);
+    if (!node) return;
+
+    setNodes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, lastAccessedAt: now } : n)),
+    );
+
+    if (node.thoughtId) {
+      updateNodeMutation({
+        thoughtId: node.thoughtId as never,
+        nodeId: id,
+        updates: { lastAccessedAt: now },
+      }).catch((err) => console.error('[Convex] Failed to update node access time:', err));
+    }
+  }, [updateNodeMutation]);
 
   const handleArchiveNode = useCallback((id: string) => {
     const node = nodesRef.current.find((n) => n.id === id);
@@ -319,19 +440,15 @@ function App() {
   }, []);
 
   const handleNavigateNode = useCallback((nodeId: string) => {
+    markNodeAccess(nodeId);
     setDetailNodeId(nodeId);
-  }, []);
-  const handleGraphDoubleClick = useCallback((nodeId: string) => {
-    setDetailNodeId(nodeId);
-  }, []);
+  }, [markNodeAccess]);
 
   const handleUpdatePage = useCallback((pageId: string, updates: Partial<PageData>) => {
     setPages((prev) =>
       prev.map((p) => (p.id === pageId ? { ...p, ...updates } : p)),
     );
   }, []);
-
-  // --- Drag-to-archive ---
 
   const handleNodeDragMove = useCallback((_nodeId: string, screenX: number, screenY: number) => {
     setIsDragging(true);
@@ -364,18 +481,24 @@ function App() {
     }
   }, [handleArchiveNode]);
 
-  // --- View archived node ---
-
   const handleViewArchivedNode = useCallback((nodeId: string) => {
     setShowArchive(false);
     setTimeout(() => setDetailNodeId(nodeId), 280);
   }, []);
 
-  const activeNodes = nodes.filter((n) => !n.archived);
-  const archivedNodes = nodes.filter((n) => n.archived);
+  const activeNodes = useMemo(() => nodes.filter((n) => !n.archived), [nodes]);
+  const archivedNodes = useMemo(() => nodes.filter((n) => n.archived), [nodes]);
   const mentionCountByNodeId = useMemo(
     () => new Map((nodeStats ?? []).map((row) => [row.nodeId, row.mentionCount])),
     [nodeStats],
+  );
+  const activeNodesWithStats = useMemo(
+    () =>
+      activeNodes.map((node) => ({
+        ...node,
+        mentionCount: mentionCountByNodeId.get(node.id) ?? 0,
+      })),
+    [activeNodes, mentionCountByNodeId],
   );
   const recentThoughtIds = useMemo(() => {
     const thoughts = savedThoughts ?? [];
@@ -386,9 +509,10 @@ function App() {
         .map((thought) => thought._id as string),
     );
   }, [savedThoughts]);
+
   const mainNodes = useMemo(
-    () => selectMainCanvasNodes(activeNodes, mentionCountByNodeId, recentThoughtIds),
-    [activeNodes, mentionCountByNodeId, recentThoughtIds],
+    () => selectMainCanvasNodes(activeNodesWithStats, mentionCountByNodeId, recentThoughtIds),
+    [activeNodesWithStats, mentionCountByNodeId, recentThoughtIds],
   );
   const mainNodeIdSet = useMemo(
     () => new Set(mainNodes.map((node) => node.id)),
@@ -398,16 +522,115 @@ function App() {
     () => connections.filter((conn) => mainNodeIdSet.has(conn.sourceId) && mainNodeIdSet.has(conn.targetId)),
     [connections, mainNodeIdSet],
   );
+
+  const immersiveUmbrella = useMemo(() => {
+    if (graphScope.mode !== 'immersive') return null;
+    return activeNodesWithStats.find((n) => n.id === graphScope.umbrellaId) ?? null;
+  }, [activeNodesWithStats, graphScope]);
+
+  const immersiveNodes = useMemo(() => {
+    if (graphScope.mode !== 'immersive' || !immersiveUmbrella) return [];
+    const { children, related } = getImmersiveScopeHybrid(activeNodesWithStats, connections, graphScope.umbrellaId);
+    return buildImmersiveLayout(immersiveUmbrella, children, related);
+  }, [activeNodesWithStats, connections, graphScope, immersiveUmbrella]);
+
+  const immersiveNodeIdSet = useMemo(
+    () => new Set(immersiveNodes.map((node) => node.id)),
+    [immersiveNodes],
+  );
+
+  const immersiveConnections = useMemo(
+    () => connections.filter((conn) => immersiveNodeIdSet.has(conn.sourceId) && immersiveNodeIdSet.has(conn.targetId)),
+    [connections, immersiveNodeIdSet],
+  );
+
+  const graphMode: GraphCanvasMode = graphScope.mode;
+  const canvasNodes = graphMode === 'main' ? mainNodes : immersiveNodes;
+  const canvasConnections = graphMode === 'main' ? mainConnections : immersiveConnections;
+
+  useEffect(() => {
+    if (graphScope.mode !== 'immersive') return;
+    if (immersiveUmbrella) return;
+    setGraphScope({ mode: 'main' });
+    setTransitionPhase('idle');
+  }, [graphScope.mode, immersiveUmbrella]);
+
+  const setTransitionTimer = useCallback((cb: () => void, delay: number) => {
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = setTimeout(() => {
+      transitionTimerRef.current = null;
+      cb();
+    }, delay);
+  }, []);
+
+  const handleEnterUmbrella = useCallback((umbrellaId: string, origin: { x: number; y: number }) => {
+    setDetailNodeId(null);
+    setTransitionOrigin(origin);
+    setTransitionPhase('entering');
+    setTransitionTimer(() => {
+      setGraphScope({ mode: 'immersive', umbrellaId });
+      setTransitionPhase('idle');
+    }, IMMERSION_ENTER_MS);
+  }, [setTransitionTimer]);
+
+  const handleExitImmersive = useCallback(() => {
+    if (graphScope.mode !== 'immersive') return;
+    setDetailNodeId(null);
+    setTransitionPhase('exiting');
+    setTransitionTimer(() => {
+      setGraphScope({ mode: 'main' });
+      setTransitionPhase('idle');
+    }, IMMERSION_EXIT_MS);
+  }, [graphScope.mode, setTransitionTimer]);
+
+  const handleGraphSingleClick = useCallback((nodeId: string, _mode: GraphCanvasMode) => {
+    markNodeAccess(nodeId);
+    setDetailNodeId(nodeId);
+  }, [markNodeAccess]);
+
+  const handleGraphDoubleClick = useCallback((nodeId: string, mode: GraphCanvasMode, origin: { x: number; y: number }) => {
+    if (mode === 'main') {
+      const clickedNode = activeNodesWithStats.find((node) => node.id === nodeId);
+      if (!clickedNode || clickedNode.kind !== 'umbrella') {
+        setDetailNodeId(nodeId);
+        return;
+      }
+
+      const scoped = getImmersiveScopeHybrid(activeNodesWithStats, connections, nodeId);
+      if (scoped.children.length === 0 && scoped.related.length === 0) {
+        setDetailNodeId(nodeId);
+        return;
+      }
+
+      handleEnterUmbrella(nodeId, origin);
+      return;
+    }
+
+    setDetailNodeId(nodeId);
+  }, [activeNodesWithStats, connections, handleEnterUmbrella]);
+
+  const handleCanvasNodeMove = useCallback((id: string, x: number, y: number) => {
+    if (graphMode === 'immersive') return;
+    handleNodeMove(id, x, y);
+  }, [graphMode, handleNodeMove]);
+
   const detailNode = detailNodeId ? nodes.find((n) => n.id === detailNodeId) ?? null : null;
+  const detailMentionCount = detailNode ? mentionCountByNodeId.get(detailNode.id) ?? 0 : 0;
 
   return (
     <>
       <GraphCanvas
-        nodes={mainNodes}
-        connections={mainConnections}
-        onNodeMove={handleNodeMove}
-        onNodeSingleClick={setDetailNodeId}
+        mode={graphMode}
+        immersiveLabel={immersiveUmbrella ? `All nodes > ${immersiveUmbrella.label}` : undefined}
+        transitionPhase={transitionPhase}
+        transitionOrigin={transitionOrigin}
+        nodes={canvasNodes}
+        connections={canvasConnections}
+        onNodeMove={handleCanvasNodeMove}
+        layoutEnabled={graphMode === 'main'}
+        onNodeSingleClick={handleGraphSingleClick}
         onNodeDoubleClick={handleGraphDoubleClick}
+        onBackFromImmersive={graphMode === 'immersive' ? handleExitImmersive : undefined}
         onNodeDragMove={handleNodeDragMove}
         onNodeDrop={handleNodeDrop}
       />
@@ -428,11 +651,12 @@ function App() {
         <NodeDetailPanel
           key={detailNode.id}
           node={detailNode}
-          nodes={activeNodes}
+          nodes={activeNodesWithStats}
           edges={edges}
           connections={connections}
           pages={pages}
           tasks={tasks}
+          mentionCount={detailMentionCount}
           onUpdate={handleUpdateNode}
           onArchive={handleArchiveNode}
           onAddEdge={handleAddEdge}

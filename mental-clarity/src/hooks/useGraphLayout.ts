@@ -24,6 +24,8 @@ interface LayoutRequest {
     y: number;
     radius: number;
     category?: string;
+    kind?: string;
+    parentIds?: string[];
     pinned?: boolean;
   }>;
   edges: Array<{
@@ -202,8 +204,10 @@ export function useGraphLayout({
         id: node.id,
         x: Number.isFinite(node.x) ? node.x : canvasWidth * 0.5,
         y: Number.isFinite(node.y) ? node.y : canvasHeight * 0.5,
-        radius: computeNodeRadius(node.label, node.kind),
+        radius: computeNodeRadius(node.label, node.kind, node.mentionCount),
         category: node.category,
+        kind: node.kind,
+        parentIds: node.parentIds ?? [],
         pinned: pinnedIdsRef.current.has(node.id),
       })),
       edges: connectionsRef.current.map((connection) => ({
