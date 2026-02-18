@@ -10,6 +10,7 @@ import styles from './NodeDetailPanel.module.css';
 
 interface NodeDetailPanelProps {
   node: NodeData;
+  mentionCount?: number;
   nodes: NodeData[];
   edges: EdgeData[];
   connections?: ConnectionData[];
@@ -26,6 +27,7 @@ interface NodeDetailPanelProps {
 
 export function NodeDetailPanel({
   node,
+  mentionCount = 0,
   nodes,
   edges,
   connections = [],
@@ -119,6 +121,7 @@ export function NodeDetailPanel({
       <div className={cn(styles.panel, isClosing && styles.closing)}>
         <PanelHeader
           node={node}
+          mentionCount={mentionCount}
           label={label}
           onLabelChange={setLabel}
           isScrolled={isScrolled}

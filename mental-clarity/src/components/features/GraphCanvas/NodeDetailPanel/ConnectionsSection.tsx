@@ -99,16 +99,21 @@ export function ConnectionsSection({
 
           return (
             <div key={conn.id} className={styles.aiConnectionCard}>
-              <button
-                className={styles.aiConnectionBtn}
-                onClick={() => onNavigate(otherId)}
-              >
-                <span className={styles.connectionDot} />
-                <span className={styles.aiConnectionLabel}>{otherNode.label}</span>
+              <div className={styles.aiConnectionBtn}>
+                <button
+                  className={styles.aiConnectionNodeChip}
+                  onClick={() => onNavigate(otherId)}
+                >
+                  <span className={styles.connectionDot} />
+                  <span className={styles.aiConnectionLabel}>{otherNode.label}</span>
+                </button>
                 <span className={styles.aiConnectionMeta}>
-                  {conn.label} · {conn.type}
+                  {conn.type} · {conn.label}
                 </span>
-              </button>
+              </div>
+              <div className={styles.aiConnectionJustification}>
+                {conn.justification ?? `Inferred via ${conn.type} relationship from this brain dump.`}
+              </div>
             </div>
           );
         })}

@@ -5,13 +5,14 @@ import styles from './NodeDetailPanel.module.css';
 
 interface PanelHeaderProps {
   node: NodeData;
+  mentionCount?: number;
   label: string;
   onLabelChange: (value: string) => void;
   isScrolled: boolean;
   onClose: () => void;
 }
 
-export function PanelHeader({ node, label, onLabelChange, isScrolled, onClose }: PanelHeaderProps) {
+export function PanelHeader({ node, mentionCount = 0, label, onLabelChange, isScrolled, onClose }: PanelHeaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -31,6 +32,14 @@ export function PanelHeader({ node, label, onLabelChange, isScrolled, onClose }:
     hour: '2-digit',
     minute: '2-digit',
   });
+  const lastAccessText = node.lastAccessedAt
+    ? new Date(node.lastAccessedAt).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : 'Not viewed yet';
 
   const wordCount = (node.content ?? '').split(/\s+/).filter(Boolean).length;
 
@@ -60,6 +69,10 @@ export function PanelHeader({ node, label, onLabelChange, isScrolled, onClose }:
             <span>{wordCount} {wordCount === 1 ? 'word' : 'words'}</span>
           </>
         )}
+        <span className={styles.metaDot}>·</span>
+        <span>{mentionCount} mention{mentionCount === 1 ? '' : 's'}</span>
+        <span className={styles.metaDot}>·</span>
+        <span>Last viewed {lastAccessText}</span>
       </div>
     </div>
   );

@@ -180,6 +180,7 @@ export async function refineGraph(
         targetId: tgtId,
         label: rel.label,
         type: rel.type,
+        justification: rel.justification,
         strength: rel.strength,
         createdAt: now,
       });

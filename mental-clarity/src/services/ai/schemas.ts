@@ -96,6 +96,9 @@ export function parseRelationshipResponse(
       type: VALID_CONN_TYPES.includes(r.type as ConnectionType)
         ? (r.type as ConnectionType)
         : 'related' as ConnectionType,
+      justification: typeof r.justification === 'string'
+        ? r.justification.slice(0, 240)
+        : undefined,
       strength: typeof r.strength === 'number'
         ? Math.max(0.1, Math.min(1.0, r.strength))
         : 0.5,

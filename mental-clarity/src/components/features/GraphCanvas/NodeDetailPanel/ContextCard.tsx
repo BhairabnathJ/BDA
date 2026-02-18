@@ -19,9 +19,23 @@ export function ContextCard({ context, onNavigateParent }: ContextCardProps) {
       </div>
       <div className={styles.contextSegments}>
         {context.segments.map((seg, i) => (
-          <blockquote key={i} className={styles.contextQuote}>
-            {seg.text}
-          </blockquote>
+          <div key={i} className={styles.contextSegment}>
+            <blockquote className={styles.contextQuote}>
+              {seg.text}
+            </blockquote>
+            <div className={styles.contextMeta}>
+              <span>
+                {new Date(seg.timestamp).toLocaleString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+              <span className={styles.metaDot}>·</span>
+              <span>{seg.dumpId.slice(0, 8)}</span>
+            </div>
+          </div>
         ))}
       </div>
       {context.summary && (
