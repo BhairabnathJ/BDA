@@ -50,10 +50,61 @@ function sanitizeNodeCoordinates(node: NodeData, index: number, total: number): 
   };
 }
 
-function getMainCanvasNodes(activeNodes: NodeData[]): NodeData[] {
+function inferLegacyUmbrellas(activeNodes: NodeData[], connections: ConnectionData[]): NodeData[] {
+  if (activeNodes.length === 0) return [];
+
+  const degreeByNodeId = new Map<string, number>();
+  for (const node of activeNodes) {
+    degreeByNodeId.set(node.id, 0);
+  }
+
+  for (const connection of connections) {
+    if (degreeByNodeId.has(connection.sourceId)) {
+      degreeByNodeId.set(connection.sourceId, (degreeByNodeId.get(connection.sourceId) ?? 0) + 1);
+    }
+    if (degreeByNodeId.has(connection.targetId)) {
+      degreeByNodeId.set(connection.targetId, (degreeByNodeId.get(connection.targetId) ?? 0) + 1);
+    }
+  }
+
+  const rootLikeNodes = activeNodes.filter((node) => (node.parentIds?.length ?? 0) === 0);
+  const candidatePool = rootLikeNodes.length > 0 ? rootLikeNodes : activeNodes;
+
+  const targetCount = Math.min(
+    12,
+    Math.max(4, Math.round(Math.sqrt(candidatePool.length || 1))),
+  );
+
+  return [...candidatePool]
+    .sort((a, b) => {
+      const degreeDelta = (degreeByNodeId.get(b.id) ?? 0) - (degreeByNodeId.get(a.id) ?? 0);
+      if (degreeDelta !== 0) return degreeDelta;
+      return a.label.localeCompare(b.label);
+    })
+    .slice(0, targetCount);
+}
+
+function getMainCanvasNodes(activeNodes: NodeData[], connections: ConnectionData[]): NodeData[] {
+  const parentCandidateIds = new Set<string>();
+  for (const node of activeNodes) {
+    for (const parentId of node.parentIds ?? []) {
+      parentCandidateIds.add(parentId);
+    }
+  }
+
   const explicitUmbrellas = activeNodes.filter((node) => node.kind === 'umbrella');
-  if (explicitUmbrellas.length > 0) return explicitUmbrellas;
-  return activeNodes.filter((node) => (node.parentIds?.length ?? 0) === 0);
+  const implicitRootParents = activeNodes.filter(
+    (node) =>
+      parentCandidateIds.has(node.id) &&
+      (node.parentIds?.length ?? 0) === 0 &&
+      node.kind !== 'umbrella',
+  );
+
+  const umbrellaNodes = [...explicitUmbrellas, ...implicitRootParents];
+  if (umbrellaNodes.length > 0) return umbrellaNodes;
+
+  // Legacy fallback: infer a compact umbrella view from top connected roots.
+  return inferLegacyUmbrellas(activeNodes, connections);
 }
 
 function getImmersiveNodes(
@@ -453,8 +504,8 @@ function App() {
   );
 
   const mainNodes = useMemo(
-    () => getMainCanvasNodes(activeNodes),
-    [activeNodes],
+    () => getMainCanvasNodes(activeNodes, connections),
+    [activeNodes, connections],
   );
 
   const mainNodeIdSet = useMemo(
@@ -527,19 +578,24 @@ function App() {
   }, [graphScope.mode, setTransitionTimer]);
 
   const handleGraphSingleClick = useCallback((nodeId: string, mode: GraphCanvasMode) => {
-    if (mode === 'immersive') {
+    if (mode === 'main' || mode === 'immersive') {
       setDetailNodeId(nodeId);
     }
   }, []);
 
   const handleGraphDoubleClick = useCallback((nodeId: string, mode: GraphCanvasMode, origin: { x: number; y: number }) => {
     if (mode === 'main') {
+      const immersiveCandidates = getImmersiveNodes(activeNodes, connections, nodeId);
+      if (immersiveCandidates.length === 0) {
+        setDetailNodeId(nodeId);
+        return;
+      }
       handleEnterUmbrella(nodeId, origin);
       return;
     }
 
     setDetailNodeId(nodeId);
-  }, [handleEnterUmbrella]);
+  }, [activeNodes, connections, handleEnterUmbrella]);
 
   const detailNode = detailNodeId ? nodes.find((n) => n.id === detailNodeId) ?? null : null;
 

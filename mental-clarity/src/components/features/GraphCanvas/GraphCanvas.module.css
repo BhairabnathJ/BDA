@@ -17,9 +17,7 @@
 }
 
 .container.immersive {
-  background-image:
-    radial-gradient(circle at var(--immersion-origin-x) var(--immersion-origin-y), rgba(168, 197, 209, 0.16), transparent 38%),
-    radial-gradient(var(--color-border) 1px, transparent 2px);
+  /* preserve original dot-grid background in immersive mode */
 }
 
 .surface {

@@ -25,13 +25,16 @@ export function PageContextsSection({
   const parentNodes = (node.parentIds ?? [])
     .map((pid) => nodes.find((n) => n.id === pid))
     .filter(Boolean) as NodeData[];
+  const childNodes = nodes.filter((candidate) =>
+    (candidate.parentIds ?? []).includes(node.id),
+  );
 
   const hasContexts = page && page.contexts.length > 0;
   const relatedTasks = tasks.filter(
     (t) => t.relatedTopic.toLowerCase() === node.label.toLowerCase(),
   );
 
-  if (!hasContexts && parentNodes.length === 0 && relatedTasks.length === 0) {
+  if (!hasContexts && parentNodes.length === 0 && childNodes.length === 0 && relatedTasks.length === 0) {
     return null;
   }
 
@@ -63,6 +66,24 @@ export function PageContextsSection({
                 onClick={() => onNavigate(parent.id)}
               >
                 {parent.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Child topics for umbrella/parent nodes */}
+      {childNodes.length > 0 && (
+        <div className={styles.contextsSection}>
+          <div className={styles.sectionLabel}>Subtopics</div>
+          <div className={styles.alsoInSection}>
+            {childNodes.map((child) => (
+              <button
+                key={child.id}
+                className={styles.alsoInTag}
+                onClick={() => onNavigate(child.id)}
+              >
+                {child.label}
               </button>
             ))}
           </div>
