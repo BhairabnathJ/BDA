@@ -17,13 +17,6 @@ import { logAIRun } from '@/services/analytics/aiRunsClient';
 const IMMERSION_ENTER_MS = 560;
 const IMMERSION_EXIT_MS = 420;
 
-interface NodeStatRow {
-  nodeId: string;
-  label: string;
-  kind: string;
-  mentionCount: number;
-}
-
 type GraphScope =
   | { mode: 'main' }
   | { mode: 'immersive'; umbrellaId: string };
@@ -205,7 +198,6 @@ function App() {
   const deleteNodeMutation = useMutation(api.thoughts.deleteNode);
   const createAIRun = useMutation(api.aiRuns.createRun);
   const savedThoughts = useQuery(api.thoughts.list);
-  const nodeStats = useQuery((api as any).thoughts.listNodeStats as any, {}) as NodeStatRow[] | undefined;
 
   const nodesRef = useRef<NodeData[]>(nodes);
   const connectionsRef = useRef<ConnectionData[]>(connections);
@@ -488,10 +480,18 @@ function App() {
 
   const activeNodes = useMemo(() => nodes.filter((n) => !n.archived), [nodes]);
   const archivedNodes = useMemo(() => nodes.filter((n) => n.archived), [nodes]);
-  const mentionCountByNodeId = useMemo(
-    () => new Map((nodeStats ?? []).map((row) => [row.nodeId, row.mentionCount])),
-    [nodeStats],
-  );
+  const mentionCountByNodeId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const thought of savedThoughts ?? []) {
+      const seenInThought = new Set<string>();
+      for (const node of thought.nodes as NodeData[]) {
+        if (seenInThought.has(node.id)) continue;
+        seenInThought.add(node.id);
+        counts.set(node.id, (counts.get(node.id) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [savedThoughts]);
   const activeNodesWithStats = useMemo(
     () =>
       activeNodes.map((node) => ({
