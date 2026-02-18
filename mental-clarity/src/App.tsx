@@ -13,6 +13,46 @@ import { useAIExtraction } from '@/hooks/useAIExtraction';
 import type { GraphCallbacks } from '@/hooks/useAIExtraction';
 import { logAIRun } from '@/services/analytics/aiRunsClient';
 
+interface NodeStatRow {
+  nodeId: string;
+  label: string;
+  kind: string;
+  mentionCount: number;
+}
+
+function selectMainCanvasNodes(
+  activeNodes: NodeData[],
+  mentionCountByNodeId: Map<string, number>,
+  recentThoughtIds: Set<string>,
+): NodeData[] {
+  if (activeNodes.length === 0) return [];
+
+  const umbrellas = activeNodes
+    .filter((node) => node.kind === 'umbrella')
+    .sort((a, b) => {
+      const mentionDelta = (mentionCountByNodeId.get(b.id) ?? 0) - (mentionCountByNodeId.get(a.id) ?? 0);
+      if (mentionDelta !== 0) return mentionDelta;
+      return a.label.localeCompare(b.label);
+    });
+
+  const topUmbrellaCount = Math.min(10, Math.max(4, umbrellas.length));
+  const topUmbrellas = umbrellas.slice(0, topUmbrellaCount);
+  const visibleNodeIds = new Set(topUmbrellas.map((node) => node.id));
+
+  const recentDetailNodes = activeNodes.filter(
+    (node) => node.kind !== 'umbrella' && node.thoughtId && recentThoughtIds.has(node.thoughtId),
+  );
+  for (const node of recentDetailNodes) {
+    visibleNodeIds.add(node.id);
+  }
+
+  if (visibleNodeIds.size === 0) {
+    return activeNodes.slice(0, Math.min(40, activeNodes.length));
+  }
+
+  return activeNodes.filter((node) => visibleNodeIds.has(node.id));
+}
+
 function App() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [connections, setConnections] = useState<ConnectionData[]>([]);
@@ -36,6 +76,7 @@ function App() {
   const deleteNodeMutation = useMutation(api.thoughts.deleteNode);
   const createAIRun = useMutation(api.aiRuns.createRun);
   const savedThoughts = useQuery(api.thoughts.list);
+  const nodeStats = useQuery((api as any).thoughts.listNodeStats as any, {}) as NodeStatRow[] | undefined;
 
   // Refs to access latest state without re-creating graphCallbacks
   const nodesRef = useRef<NodeData[]>(nodes);
@@ -303,13 +344,38 @@ function App() {
 
   const activeNodes = nodes.filter((n) => !n.archived);
   const archivedNodes = nodes.filter((n) => n.archived);
+  const mentionCountByNodeId = useMemo(
+    () => new Map((nodeStats ?? []).map((row) => [row.nodeId, row.mentionCount])),
+    [nodeStats],
+  );
+  const recentThoughtIds = useMemo(() => {
+    const thoughts = savedThoughts ?? [];
+    return new Set(
+      [...thoughts]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 3)
+        .map((thought) => thought._id as string),
+    );
+  }, [savedThoughts]);
+  const mainNodes = useMemo(
+    () => selectMainCanvasNodes(activeNodes, mentionCountByNodeId, recentThoughtIds),
+    [activeNodes, mentionCountByNodeId, recentThoughtIds],
+  );
+  const mainNodeIdSet = useMemo(
+    () => new Set(mainNodes.map((node) => node.id)),
+    [mainNodes],
+  );
+  const mainConnections = useMemo(
+    () => connections.filter((conn) => mainNodeIdSet.has(conn.sourceId) && mainNodeIdSet.has(conn.targetId)),
+    [connections, mainNodeIdSet],
+  );
   const detailNode = detailNodeId ? nodes.find((n) => n.id === detailNodeId) ?? null : null;
 
   return (
     <>
       <GraphCanvas
-        nodes={activeNodes}
-        connections={connections}
+        nodes={mainNodes}
+        connections={mainConnections}
         onNodeMove={handleNodeMove}
         onNodeClick={setDetailNodeId}
         onNodeDragMove={handleNodeDragMove}
