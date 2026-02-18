@@ -6,6 +6,8 @@ interface WorkerNode {
   y: number;
   radius?: number;
   category?: NodeCategory;
+  kind?: string;
+  parentIds?: string[];
   pinned?: boolean;
 }
 
@@ -77,6 +79,106 @@ function categoryAnchor(category: NodeCategory | undefined, width: number, heigh
   }
 }
 
+function buildNeighborStrength(edges: WorkerEdge[]): Map<string, Map<string, number>> {
+  const graph = new Map<string, Map<string, number>>();
+  for (const edge of edges) {
+    const strength = clamp(finiteOr(edge.strength ?? 0.6, 0.6), 0.1, 1);
+
+    const sourceMap = graph.get(edge.sourceId) ?? new Map<string, number>();
+    sourceMap.set(edge.targetId, (sourceMap.get(edge.targetId) ?? 0) + strength);
+    graph.set(edge.sourceId, sourceMap);
+
+    const targetMap = graph.get(edge.targetId) ?? new Map<string, number>();
+    targetMap.set(edge.sourceId, (targetMap.get(edge.sourceId) ?? 0) + strength);
+    graph.set(edge.targetId, targetMap);
+  }
+  return graph;
+}
+
+function computeClusterKeys(
+  nodes: WorkerNode[],
+  edges: WorkerEdge[],
+): Map<string, string> {
+  const umbrellaIds = nodes
+    .filter((node) => node.kind === 'umbrella')
+    .map((node) => node.id);
+  const umbrellaSet = new Set(umbrellaIds);
+  const neighborStrength = buildNeighborStrength(edges);
+  const clusterByNode = new Map<string, string>();
+
+  for (const node of nodes) {
+    if (node.kind === 'umbrella') {
+      clusterByNode.set(node.id, node.id);
+      continue;
+    }
+
+    const parentCandidates = (node.parentIds ?? []).filter((id) => umbrellaSet.has(id));
+    let strongestParent: string | null = null;
+    let strongestScore = -1;
+    const scores = neighborStrength.get(node.id) ?? new Map<string, number>();
+
+    for (const parentId of parentCandidates) {
+      const score = scores.get(parentId) ?? 0;
+      if (score > strongestScore) {
+        strongestParent = parentId;
+        strongestScore = score;
+      }
+    }
+
+    if (!strongestParent) {
+      for (const [neighborId, score] of scores.entries()) {
+        if (!umbrellaSet.has(neighborId)) continue;
+        if (score > strongestScore) {
+          strongestParent = neighborId;
+          strongestScore = score;
+        }
+      }
+    }
+
+    if (strongestParent) {
+      clusterByNode.set(node.id, strongestParent);
+      continue;
+    }
+
+    const categoryKey = `category:${(node.category ?? 'misc').toLowerCase()}`;
+    clusterByNode.set(node.id, categoryKey);
+  }
+
+  return clusterByNode;
+}
+
+function buildClusterAnchors(
+  clusterByNode: Map<string, string>,
+  nodes: WorkerNode[],
+  width: number,
+  height: number,
+): Map<string, { x: number; y: number }> {
+  const centerX = width * 0.5;
+  const centerY = height * 0.5;
+  const anchorByCluster = new Map<string, { x: number; y: number }>();
+  const clusterEntries = new Set(clusterByNode.values());
+
+  const umbrellaClusters = [...clusterEntries].filter((key) => !key.startsWith('category:')).sort();
+  const categoryClusters = [...clusterEntries].filter((key) => key.startsWith('category:')).sort();
+
+  const umbrellaRadius = clamp(Math.min(width, height) * 0.32, 180, 420);
+  for (let index = 0; index < umbrellaClusters.length; index += 1) {
+    const key = umbrellaClusters[index];
+    const angle = (index / Math.max(umbrellaClusters.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    anchorByCluster.set(key, {
+      x: centerX + Math.cos(angle) * umbrellaRadius,
+      y: centerY + Math.sin(angle) * umbrellaRadius,
+    });
+  }
+
+  for (const key of categoryClusters) {
+    const node = nodes.find((candidate) => clusterByNode.get(candidate.id) === key);
+    anchorByCluster.set(key, categoryAnchor(node?.category, width, height));
+  }
+
+  return anchorByCluster;
+}
+
 function gridKey(x: number, y: number, cellSize: number): string {
   const gx = Math.floor(x / cellSize);
   const gy = Math.floor(y / cellSize);
@@ -101,6 +203,9 @@ function initializePositions(
   req: LayoutRequest,
   degree: Map<string, number>,
   neighbors: Map<string, string[]>,
+  indexById: Map<string, number>,
+  clusterByNode: Map<string, string>,
+  anchorByCluster: Map<string, { x: number; y: number }>,
   ids: string[],
   canMove: boolean[],
   xs: number[],
@@ -118,7 +223,10 @@ function initializePositions(
 
   for (let i = 0; i < req.nodes.length; i++) {
     const node = req.nodes[i];
-    const fallbackAnchor = categoryAnchor(node.category, req.width, req.height);
+    const clusterKey = clusterByNode.get(node.id);
+    const fallbackAnchor = clusterKey
+      ? anchorByCluster.get(clusterKey) ?? categoryAnchor(node.category, req.width, req.height)
+      : categoryAnchor(node.category, req.width, req.height);
     const safeX = finiteOr(node.x, fallbackAnchor.x);
     const safeY = finiteOr(node.y, fallbackAnchor.y);
 
@@ -137,7 +245,7 @@ function initializePositions(
     const r1 = hashFloat(node.id, 17);
     const r2 = hashFloat(node.id, 29);
     const angle = r1 * Math.PI * 2;
-    const anchor = categoryAnchor(node.category, req.width, req.height);
+    const anchor = fallbackAnchor;
     const spread = req.config.initialSpread;
 
     if (hubSet.has(node.id)) {
@@ -151,7 +259,7 @@ function initializePositions(
     const nodeNeighbors = neighbors.get(node.id) ?? [];
     const hubNeighbor = nodeNeighbors.find((neighbor) => hubSet.has(neighbor));
     if (hubNeighbor) {
-      const hubNodeIndex = ids.indexOf(hubNeighbor);
+      const hubNodeIndex = indexById.get(hubNeighbor) ?? -1;
       const hubX = hubNodeIndex >= 0 ? xs[hubNodeIndex] : centerX;
       const hubY = hubNodeIndex >= 0 ? ys[hubNodeIndex] : centerY;
       const ringRadius = 150 + r2 * 180;
@@ -235,6 +343,8 @@ function runLayout(req: LayoutRequest): LayoutResponse {
 
   const ids = req.nodes.map((node) => node.id);
   const indexById = new Map(ids.map((id, index) => [id, index]));
+  const clusterByNode = computeClusterKeys(req.nodes, req.edges);
+  const anchorByCluster = buildClusterAnchors(clusterByNode, req.nodes, width, height);
 
   const degree = new Map<string, number>();
   const neighbors = new Map<string, string[]>();
@@ -268,7 +378,7 @@ function runLayout(req: LayoutRequest): LayoutResponse {
   const velocitiesY = new Array<number>(nodeCount).fill(0);
   const radii = req.nodes.map((node) => clamp(finiteOr(node.radius ?? config.nodeRadius, config.nodeRadius), 18, 220));
 
-  initializePositions(req, degree, neighbors, ids, canMove, xs, ys);
+  initializePositions(req, degree, neighbors, indexById, clusterByNode, anchorByCluster, ids, canMove, xs, ys);
 
   const maxRadius = Math.max(config.nodeRadius, ...radii);
   const spreadOverflow = Math.max(config.initialSpread * 0.65, 320);
@@ -302,7 +412,9 @@ function runLayout(req: LayoutRequest): LayoutResponse {
             const dy = y - ys[j];
             const distanceSq = dx * dx + dy * dy + 0.01;
             const distance = Math.sqrt(distanceSq);
-            const force = config.repulsionStrength / distanceSq;
+            const sameCluster = clusterByNode.get(ids[i]) === clusterByNode.get(ids[j]);
+            const clusterBoost = sameCluster ? 1 : 1.35;
+            const force = (config.repulsionStrength * clusterBoost) / distanceSq;
             forcesX[i] += (dx / distance) * force;
             forcesY[i] += (dy / distance) * force;
           }
@@ -320,7 +432,9 @@ function runLayout(req: LayoutRequest): LayoutResponse {
       const distance = Math.sqrt(dx * dx + dy * dy) || 0.001;
       const strength = clamp(finiteOr(edge.strength ?? 0.7, 0.7), 0.1, 1);
       const targetDistance = radii[sourceIndex] + radii[targetIndex] + (1 - strength) * 150;
-      const pull = (distance - targetDistance) * config.attractionStrength * (0.65 + strength) * 0.02;
+      const sameCluster = clusterByNode.get(edge.sourceId) === clusterByNode.get(edge.targetId);
+      const clusterFactor = sameCluster ? 1 : 0.58;
+      const pull = (distance - targetDistance) * config.attractionStrength * (0.65 + strength) * 0.02 * clusterFactor;
       const forceX = (dx / distance) * pull;
       const forceY = (dy / distance) * pull;
 
@@ -337,10 +451,16 @@ function runLayout(req: LayoutRequest): LayoutResponse {
     for (let i = 0; i < nodeCount; i++) {
       if (!canMove[i]) continue;
       const anchor = categoryAnchor(req.nodes[i].category, width, height);
+      const clusterKey = clusterByNode.get(ids[i]);
+      const clusterAnchor = clusterKey
+        ? anchorByCluster.get(clusterKey) ?? anchor
+        : anchor;
       forcesX[i] += (width * 0.5 - xs[i]) * config.centerGravity * 0.02;
       forcesY[i] += (height * 0.5 - ys[i]) * config.centerGravity * 0.02;
-      forcesX[i] += (anchor.x - xs[i]) * 0.0025;
-      forcesY[i] += (anchor.y - ys[i]) * 0.0025;
+      forcesX[i] += (anchor.x - xs[i]) * 0.0015;
+      forcesY[i] += (anchor.y - ys[i]) * 0.0015;
+      forcesX[i] += (clusterAnchor.x - xs[i]) * 0.0055;
+      forcesY[i] += (clusterAnchor.y - ys[i]) * 0.0055;
     }
 
     for (let i = 0; i < nodeCount; i++) {
